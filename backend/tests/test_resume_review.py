@@ -89,7 +89,11 @@ def test_bullet_stats():
 def test_review_graph_merges_all_three_parts():
     ex = extract(make_pdf(), PDF_MIME)
     out = run_review(
-        FakeProvider(fake_responder), ex.text, ParsedResume.model_validate(SYNTHETIC_PARSED), ex.layout, "Backend Engineer"
+        FakeProvider(fake_responder),
+        ex.text,
+        ParsedResume.model_validate(SYNTHETIC_PARSED),
+        ex.layout,
+        "Backend Engineer",
     )
     assert out.content_score == 20 + 15 + 22 + 25
     # Python(2) + React(2) 命中，Kubernetes(2) + GraphQL(1) 未命中 → 4/7
@@ -102,7 +106,9 @@ def test_review_graph_merges_all_three_parts():
 
 def test_review_without_target_role_skips_keywords():
     ex = extract(make_pdf(), PDF_MIME)
-    out = run_review(FakeProvider(fake_responder), ex.text, ParsedResume.model_validate(SYNTHETIC_PARSED), ex.layout, None)
+    out = run_review(
+        FakeProvider(fake_responder), ex.text, ParsedResume.model_validate(SYNTHETIC_PARSED), ex.layout, None
+    )
     assert out.keyword_score is None
     assert any(f.category == "keyword" and "没有指定目标职位" in f.message for f in out.findings)
 

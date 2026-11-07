@@ -1,4 +1,4 @@
-"""F1 模型连接：provider CRUD、测试连接、任务路由、本机 CLI 状态。"""
+"""F1 模型连接：provider CRUD、测试连接、任务路由、本机 CLI 状态与页面登录。"""
 
 from __future__ import annotations
 
@@ -12,14 +12,15 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db
 from app.core.security import SecretKeyMissing, encrypt_secret, last4
-from app.llm import registry
+from app.llm import cli_auth, registry
 from app.llm.base import DEFAULT_CAPABILITIES, LLMError, Message
-from app.llm.cli_providers import detect_cli
 from app.models import TASKS, TaskRoute
 from app.models import LLMProvider as ProviderRow
 from app.schemas.provider import (
     CliInfo,
+    CliLoginOut,
     CliStatusOut,
+    LoginCodeIn,
     ProviderIn,
     ProviderOut,
     ProviderUpdate,
@@ -32,7 +33,8 @@ router = APIRouter(prefix="/api", tags=["providers"])
 
 CLI_NOTICE = (
     "此模式使用你自己的订阅额度，仅供个人本地使用，额度和使用规则以 Anthropic / OpenAI 的条款为准。"
-    "app 只以子进程调用你本机的 CLI，不读取、不保存任何登录凭证；登录请在终端自己完成。"
+    "app 只以子进程调用你本机的 CLI；登录由 CLI 自己完成并保存凭证，app 不读取、不保存任何 token，"
+    "验证码只转交给 CLI、不会记录。"
 )
 NEEDS_KEY = {"openai", "anthropic"}
 NEEDS_URL = {"openai_compatible"}
@@ -146,10 +148,52 @@ def list_models(provider_id: uuid.UUID, db: Session = Depends(get_db)):
         raise HTTPException(502, str(exc)) from exc
 
 
+def _check_cli(name: str) -> cli_auth.CliName:
+    if name not in ("claude", "codex"):
+        raise HTTPException(404, "未知的 CLI")
+    return name  # type: ignore[return-value]
+
+
+def _login_out() -> CliLoginOut | None:
+    snap = cli_auth.login_manager.snapshot()
+    return CliLoginOut(**snap.__dict__) if snap else None
+
+
 @router.get("/cli-status", response_model=CliInfo)
 def cli_status():
-    clis = [CliStatusOut(**detect_cli(name).__dict__) for name in ("claude", "codex")]
-    return CliInfo(clis=clis, notice=CLI_NOTICE)
+    clis = [CliStatusOut(**cli_auth.auth_info(name).__dict__) for name in ("claude", "codex")]
+    return CliInfo(clis=clis, notice=CLI_NOTICE, login=_login_out())
+
+
+@router.post("/cli/{name}/login", response_model=CliLoginOut)
+def cli_login(name: str):
+    cli = _check_cli(name)
+    try:
+        cli_auth.login_manager.start(cli)
+    except (RuntimeError, OSError) as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return _login_out()
+
+
+@router.get("/cli/login", response_model=CliLoginOut | None)
+def cli_login_state():
+    return _login_out()
+
+
+@router.post("/cli/login/code")
+def cli_login_code(body: LoginCodeIn):
+    return {"status": cli_auth.login_manager.submit_code(body.code)}
+
+
+@router.post("/cli/login/cancel", status_code=204)
+def cli_login_cancel():
+    cli_auth.login_manager.cancel()
+
+
+@router.post("/cli/{name}/logout")
+def cli_logout(name: str):
+    ok, message = cli_auth.logout(_check_cli(name))
+    return {"ok": ok, "message": message}
 
 
 # ---------- 任务路由 ----------

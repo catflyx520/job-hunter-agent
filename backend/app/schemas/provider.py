@@ -71,11 +71,30 @@ class CliStatusOut(BaseModel):
     available: bool
     version: str | None
     error: str | None
+    # not_installed / signed_in / signed_out / invalid（CLI 说已登录但实际调用回报失效）/ unknown
+    state: str
+    email: str | None = None
+    auth_method: str | None = None
+
+
+class CliLoginOut(BaseModel):
+    cli: str
+    running: bool
+    url: str | None
+    output: str
+    exit_code: int | None
+    started_at: float
+    message: str
+
+
+class LoginCodeIn(BaseModel):
+    code: str = Field(min_length=1, max_length=512)
 
 
 class CliInfo(BaseModel):
     clis: list[CliStatusOut]
     notice: str
+    login: CliLoginOut | None = None
 
 
 class TaskRouteIn(BaseModel):

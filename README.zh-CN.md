@@ -4,28 +4,27 @@
 
 [English](README.md) · 规格：[docs/SPEC.md](docs/SPEC.md)
 
-> 目前进度：**M1**（骨架、模型连接、履历与需求、履历评分）。本 app 不会自动投递、不会自动填表、不会代你联系雇主。
+> 目前进度：**M1**（骨架、模型连接与 CLI 一键登录、履历与需求、履历评分）。本 app 不会自动投递、不会自动填表、不会代你联系雇主。
 
-## 快速启动（Docker，适用 API key / Ollama）
+## 需要安装
+
+- [uv](https://docs.astral.sh/uv/)（会自动装 Python 3.12）
+- Node.js 20+ 与 [pnpm](https://pnpm.io/)
+- Docker：只用来跑数据库（Postgres 16 + pgvector）
+
+## 启动
 
 ```bash
 cp .env.example .env
-# 在 APP_SECRET_KEY 填入 Fernet 金钥（用来加密保存 API key）：
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-docker compose up --build
+cd backend && uv run python -m app.core.security    # 印出金钥，填进 .env 的 APP_SECRET_KEY
 ```
 
-打开 http://localhost:8000。
-
-## 原生模式（使用本机 Claude Code / Codex CLI 时需要）
-
-CLI provider 以子进程调用**你自己**的 `claude` / `codex`，使用你的登录与订阅额度。docker 容器里没有这些 CLI，所以后端要直接跑在本机：
+```bash
+docker compose up -d                                 # 只有数据库，localhost:5433
+```
 
 ```bash
-cp .env.example .env            # 填 APP_SECRET_KEY
-docker compose up -d db         # Postgres + pgvector，localhost:5433
 cd backend
-uv sync
 uv run alembic upgrade head
 uv run uvicorn app.main:app --reload --port 8000
 ```
@@ -35,15 +34,19 @@ uv run uvicorn app.main:app --reload --port 8000
 ```bash
 cd frontend
 pnpm install
-pnpm dev                        # http://localhost:5173
+pnpm dev                                             # http://localhost:5173
 ```
 
-app 不读取、不保存任何 CLI 凭证；请在自己的终端登录 CLI。此模式使用你自己的订阅额度，仅供个人本地使用，额度和使用规则以 Anthropic / OpenAI 的条款为准。
+后端不在 8000 时，用 `API_PORT=<端口> pnpm dev` 启动前端。
+
+## 本机 Claude Code / Codex CLI
+
+CLI provider 以子进程调用**你自己**的 `claude` / `codex`，使用你的订阅额度。在「模型设置 → 本机 CLI 登录」可以看到登录状态并一键登录：app 执行 CLI 自己的登录指令，把官方授权网址显示给你，授权后的验证码由页面转交给 CLI。凭证由 CLI 自己保存，app 不读取、不保存任何 token。你也可以照旧在终端自己登录。此模式仅供个人本地使用，额度和使用规则以 Anthropic / OpenAI 的条款为准。
 
 ## 测试
 
 ```bash
-docker compose up -d db
+docker compose up -d
 cd backend
 uv run pytest
 uv run ruff check .

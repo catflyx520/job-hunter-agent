@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, Capabilities, CliInfo, Provider, ProviderKind, TaskRoute } from "../api";
+import CliLoginPanel from "./CliLogin";
 
 const KINDS: { kind: ProviderKind; label: string; needsKey: boolean; needsUrl: boolean; model: string }[] = [
   { kind: "openai", label: "OpenAI API key", needsKey: true, needsUrl: false, model: "gpt-4o-mini" },
@@ -23,6 +24,7 @@ export default function Settings() {
   const [error, setError] = useState("");
   const [testing, setTesting] = useState<string | null>(null);
   const [testMsg, setTestMsg] = useState<Record<string, string>>({});
+  const [cliRefresh, setCliRefresh] = useState(0);
 
   const load = () =>
     Promise.all([api.get<Provider[]>("/api/providers"), api.get<TaskRoute[]>("/api/task-routes")])
@@ -34,7 +36,6 @@ export default function Settings() {
 
   useEffect(() => {
     load();
-    api.get<CliInfo>("/api/cli-status").then(setCli).catch(() => undefined);
   }, []);
 
   const test = async (p: Provider) => {
@@ -45,6 +46,7 @@ export default function Settings() {
     } finally {
       setTesting(null);
       load();
+      if (p.kind === "claude_cli" || p.kind === "codex_cli") setCliRefresh((n) => n + 1);
     }
   };
 
@@ -111,6 +113,8 @@ export default function Settings() {
       </div>
 
       <AddProvider cli={cli} onAdded={load} />
+
+      <CliLoginPanel onChange={setCli} refreshKey={cliRefresh} />
 
       <div className="card">
         <h3>任务路由</h3>
@@ -262,7 +266,7 @@ function AddProvider({ cli, onAdded }: { cli: CliInfo | null; onAdded: () => voi
           <p className="notice">{cli?.notice}</p>
           <p className="muted">
             {cliStatus?.available ? `✅ 已检测到 ${cliName}：${cliStatus.version}` : `❌ ${cliStatus?.error ?? "检测中…"}`}
-            {" · "}CLI 模式需要后端直接跑在本机（原生模式），docker 容器里没有你的 CLI 与登录状态。
+            {" · "}登录状态与登录按钮在下方「本机 CLI 登录」。
           </p>
         </div>
       )}

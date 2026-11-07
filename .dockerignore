@@ -1,9 +1,0 @@
-.git
-data
-.env
-**/__pycache__
-**/.venv
-**/node_modules
-frontend/dist
-evals
-docs

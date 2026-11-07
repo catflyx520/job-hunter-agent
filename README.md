@@ -4,28 +4,27 @@ Open-source, local-first job hunting assistant. Connect your own model (API key 
 
 [中文说明](README.zh-CN.md) · Spec: [docs/SPEC.md](docs/SPEC.md)
 
-> Status: **M1** (skeleton, model connections, resume & preferences, resume review). The app never applies to jobs, fills forms, or contacts employers for you.
+> Status: **M1** (skeleton, model connections incl. one-click CLI login, resume & preferences, resume review). The app never applies to jobs, fills forms, or contacts employers for you.
 
-## Quick start (Docker — API key / Ollama)
+## Requirements
+
+- [uv](https://docs.astral.sh/uv/) (installs Python 3.12 for you)
+- Node.js 20+ and [pnpm](https://pnpm.io/)
+- Docker — only for the database (Postgres 16 + pgvector)
+
+## Run
 
 ```bash
 cp .env.example .env
-# put a Fernet key in APP_SECRET_KEY (used to encrypt API keys at rest):
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-docker compose up --build
+cd backend && uv run python -m app.core.security    # prints a key; put it in .env as APP_SECRET_KEY
 ```
 
-Open http://localhost:8000.
-
-## Native mode (needed for local Claude Code / Codex CLI)
-
-The CLI providers call *your* `claude` / `codex` as a subprocess, using your own login. Docker containers don't have them, so run the backend on the host:
+```bash
+docker compose up -d                                 # database only, on localhost:5433
+```
 
 ```bash
-cp .env.example .env            # fill APP_SECRET_KEY
-docker compose up -d db         # Postgres + pgvector on localhost:5433
 cd backend
-uv sync
 uv run alembic upgrade head
 uv run uvicorn app.main:app --reload --port 8000
 ```
@@ -35,15 +34,19 @@ In another terminal:
 ```bash
 cd frontend
 pnpm install
-pnpm dev                        # http://localhost:5173
+pnpm dev                                             # http://localhost:5173
 ```
 
-The app never reads or stores your CLI credentials; log in to the CLI in your own terminal.
+If the backend runs on another port, start the frontend with `API_PORT=<port> pnpm dev`.
+
+## Local Claude Code / Codex CLI
+
+The CLI providers call *your* `claude` / `codex` as a subprocess and use your own subscription. In **Settings → 本机 CLI 登录** you can see the login status and sign in with one click: the app runs the CLI's own login command, shows you the official authorization link, and passes the verification code back to the CLI. Credentials are stored by the CLI; the app never reads or stores tokens. You can still log in from your own terminal instead.
 
 ## Tests
 
 ```bash
-docker compose up -d db
+docker compose up -d
 cd backend
 uv run pytest
 uv run ruff check .

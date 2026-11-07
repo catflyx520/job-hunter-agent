@@ -37,7 +37,9 @@ def test_provider_crud_never_returns_full_key(client):
 def test_provider_validation(client):
     r = client.post("/api/providers", json={"kind": "anthropic", "name": "a", "default_model": "m"})
     assert r.status_code == 422
-    r = client.post("/api/providers", json={"kind": "openai_compatible", "name": "a", "default_model": "m", "api_key": "k"})
+    r = client.post(
+        "/api/providers", json={"kind": "openai_compatible", "name": "a", "default_model": "m", "api_key": "k"}
+    )
     assert r.status_code == 422
 
 

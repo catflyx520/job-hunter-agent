@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.config import get_settings
+from app.llm import auth_state
 from app.llm.base import Capabilities, LLMError, LLMProvider, flatten_prompt
 
 _semaphore: threading.BoundedSemaphore | None = None
@@ -74,7 +75,7 @@ def detect_cli(name: str) -> CliStatus:
         return CliStatus(name, False, error=f"`{name} --version` 执行失败。")
 
 
-def run_cli(args: list[str], stdin_text: str, who: str, cwd: str | None = None) -> str:
+def run_cli(args: list[str], stdin_text: str, who: str, cwd: str | None = None, cli: str = "") -> str:
     """执行 CLI，回传 stdout。错误讯息不含原始 log、凭证或路径。"""
     settings = get_settings()
     env = {k: v for k, v in os.environ.items() if k not in _STRIP_ENV}
@@ -95,9 +96,12 @@ def run_cli(args: list[str], stdin_text: str, who: str, cwd: str | None = None) 
             raise LLMError(f"无法启动 {who}，请确认已安装。") from exc
     out = proc.stdout.decode("utf-8", errors="replace")
     if proc.returncode:
-        lower = (proc.stderr.decode("utf-8", errors="replace") + out).lower()
-        if any(x in lower for x in ("unauthorized", "not logged", "login", "authentication", "401")):
-            raise LLMError(f"{who} 未登录或登录已失效，请在终端重新登录后重试。")
+        combined = proc.stderr.decode("utf-8", errors="replace") + out
+        lower = combined.lower()
+        if auth_state.is_auth_error(combined) or any(x in lower for x in ("unauthorized", "login", "authentication")):
+            if cli:
+                auth_state.mark_invalid(cli)
+            raise LLMError(f"{who} 未登录或登录已失效，请到「模型设置 → 本机 CLI 登录」重新登录后重试。")
         if any(x in lower for x in ("usage limit", "rate limit", "429", "quota")):
             raise LLMError(f"{who} 额度或速率限制，请稍后重试。")
         raise LLMError(f"{who} 未能完成生成，请确认本机登录、网络与模型权限后重试。")
@@ -135,8 +139,15 @@ class ClaudeCliProvider(LLMProvider):
         if not exe:
             raise LLMError("找不到本机 `claude`，请先安装 Claude Code 并在终端登录。")
         with tempfile.TemporaryDirectory(prefix="jha-claude-") as workdir:
-            out = run_cli(self.build_args(exe), flatten_prompt(messages), self.label, cwd=workdir)
-        return parse_claude_output(out)
+            out = run_cli(self.build_args(exe), flatten_prompt(messages), self.label, cwd=workdir, cli="claude")
+        try:
+            result = parse_claude_output(out)
+        except LLMError as exc:
+            if auth_state.is_auth_error(out):
+                auth_state.mark_invalid("claude")
+            raise exc
+        auth_state.clear("claude")
+        return result
 
 
 def parse_claude_output(out: str) -> tuple[str, dict[str, Any]]:
@@ -147,7 +158,7 @@ def parse_claude_output(out: str) -> tuple[str, dict[str, Any]]:
     if data.get("is_error"):
         status = data.get("api_error_status")
         if status == 401:
-            raise LLMError("Claude Code CLI 未登录或登录已失效，请在终端执行 `claude` 重新登录后重试。")
+            raise LLMError("Claude Code CLI 登录已失效，请到「模型设置 → 本机 CLI 登录」重新登录后重试。")
         if status == 429:
             raise LLMError("Claude Code CLI 额度或速率限制，请稍后重试。")
         raise LLMError("Claude Code CLI 回报错误，请确认登录状态与额度。")
@@ -212,8 +223,12 @@ class CodexCliProvider(LLMProvider):
                 p = Path(workdir) / f"image-{i}{_EXT.get(img.mime, '.png')}"
                 p.write_bytes(img.data)
                 paths.append(str(p))
-            out = run_cli(self.build_args(exe, workdir, paths), flatten_prompt(messages), self.label, cwd=workdir)
-        return parse_codex_output(out)
+            out = run_cli(
+                self.build_args(exe, workdir, paths), flatten_prompt(messages), self.label, cwd=workdir, cli="codex"
+            )
+        result = parse_codex_output(out)
+        auth_state.clear("codex")
+        return result
 
 
 def parse_codex_output(out: str) -> tuple[str, dict[str, Any]]:

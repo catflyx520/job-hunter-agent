@@ -29,9 +29,6 @@ class Settings(BaseSettings):
     # 上传限制
     max_resume_bytes: int = 10 * 1024 * 1024
 
-    # 前端打包后的静态档（docker 模式由后端直接提供）
-    static_dir: Path | None = None
-
 
 @lru_cache
 def get_settings() -> Settings:

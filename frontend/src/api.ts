@@ -30,9 +30,31 @@ export interface TaskRoute {
   model: string | null;
 }
 
+export type CliAuthState = "not_installed" | "signed_in" | "signed_out" | "invalid" | "unknown";
+
+export interface CliStatus {
+  name: "claude" | "codex";
+  available: boolean;
+  version: string | null;
+  error: string | null;
+  state: CliAuthState;
+  email: string | null;
+  auth_method: string | null;
+}
+
+export interface CliLogin {
+  cli: string;
+  running: boolean;
+  url: string | null;
+  output: string;
+  exit_code: number | null;
+  message: string;
+}
+
 export interface CliInfo {
-  clis: { name: string; available: boolean; version: string | null; error: string | null }[];
+  clis: CliStatus[];
   notice: string;
+  login: CliLogin | null;
 }
 
 export interface Experience {

@@ -1,5 +1,5 @@
-# 一行启动：docker compose up
-# 适用 API key / Ollama。要用本机 Claude Code / Codex CLI，请用 README 的「原生模式」。
+# 只用来跑数据库：Postgres 16 + pgvector。app（后端与前端）直接在本机执行，见 README。
+# 启动：docker compose up -d
 services:
   db:
     image: pgvector/pgvector:pg16
@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: jobhunter
       POSTGRES_DB: jobhunter
     ports:
-      - "127.0.0.1:5433:5432"   # 原生模式从宿主机连线用
+      - "127.0.0.1:5433:5432"   # 只开放给本机
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -16,23 +16,6 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
-
-  app:
-    build: .
-    environment:
-      # 从项目根目录的 .env 读取（compose 会自动载入 .env 做变数替换）
-      APP_SECRET_KEY: ${APP_SECRET_KEY:-}
-      EMBEDDING_DIM: ${EMBEDDING_DIM:-1536}
-      DATABASE_URL: postgresql+psycopg://jobhunter:jobhunter@db:5432/jobhunter
-      DATA_DIR: /data
-      STATIC_DIR: /app/static
-    volumes:
-      - ./data:/data
-    ports:
-      - "127.0.0.1:8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
 
 volumes:
   pgdata:
