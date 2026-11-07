@@ -1,0 +1,7 @@
+# 统一用 LF（Docker / shell 脚本需要）；二进制档不做任何转换
+* text=auto eol=lf
+*.pdf binary
+*.docx binary
+*.png binary
+*.jpg binary
+*.webp binary
