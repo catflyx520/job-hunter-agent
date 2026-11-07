@@ -25,6 +25,7 @@ class FakeProvider(LLMProvider):
         self._responses = responses if responses is not None else []
         self.embed_dim = embed_dim
         self.calls: list[tuple[list[Message], list[ImageInput] | None, dict | None]] = []
+        self.search_calls = 0
 
     def _complete(self, messages, images, json_mode):
         self.calls.append((messages, images, json_mode))
@@ -33,6 +34,10 @@ class FakeProvider(LLMProvider):
         if not self._responses:
             raise AssertionError("FakeProvider 没有剩余的回应")
         return self._responses.pop(0), {}
+
+    def _complete_search(self, messages, json_mode):
+        self.search_calls += 1
+        return self._complete(messages, None, json_mode)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         """以内容杂凑产生稳定的单位向量。"""

@@ -1,4 +1,4 @@
-"""SQLAlchemy 模型。M1 只建 SPEC 4.4.3 的 A（设定与模型连接）与 B（履历、需求、个人事实）两组。"""
+"""SQLAlchemy 模型（SPEC 4.4.3）。A、B 组在本档；C、D、E 组在 jobs.py、sponsor.py、materials.py。"""
 
 import uuid
 from datetime import datetime
@@ -210,3 +210,9 @@ class Fact(Base):
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = _updated()
+
+
+# M2：C（职位）、D（签证）、E（材料）组。放在最后 import，避免循环引用。
+from app.models.jobs import *  # noqa: E402,F403
+from app.models.materials import *  # noqa: E402,F403
+from app.models.sponsor import *  # noqa: E402,F403

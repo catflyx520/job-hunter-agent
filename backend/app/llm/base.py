@@ -92,6 +92,12 @@ class LLMProvider(ABC):
     ) -> tuple[str, dict[str, Any]]:
         """回传 (文字, usage)。json_mode 不为 None 时是要求输出的 JSON Schema。"""
 
+    def _complete_search(self, messages: list[Message], json_mode: dict[str, Any] | None) -> tuple[str, dict[str, Any]]:
+        """开放「网页搜索」工具的生成（只给 F3 搜索任务用）。子类有支援才覆写。"""
+        raise NotSupported(
+            f"{self.kind} 不支援网页搜索，请为「职位搜索」任务换一个模型，或在设置页改用 Tavily / SearXNG。"
+        )
+
     def embed(self, texts: list[str]) -> list[list[float]]:
         raise NotSupported(f"{self.kind} 不支援 embedding，请在设置页为 embedding 任务指定其他模型。")
 
@@ -107,16 +113,26 @@ class LLMProvider(ABC):
         messages: list[Message],
         schema: type[BaseModel] | None = None,
         images: list[ImageInput] | None = None,
+        web_search: bool = False,
     ) -> GenerateResult:
+        """web_search=True 时开放网页搜索工具（只用于职位搜索），其他任务一律不开放任何工具。"""
         if images and not self._capabilities.vision:
             raise NotSupported("目前的模型不支援图片，请改贴文字。")
+        if web_search:
+            if images:
+                raise NotSupported("网页搜索不接受图片。")
+
+            def complete(msgs, imgs, js):
+                return self._complete_search(msgs, js)
+        else:
+            complete = self._complete
         if schema is None:
-            text, usage = self._complete(messages, images, None)
+            text, usage = complete(messages, images, None)
             return GenerateResult(text=text, model=self.model, usage=usage)
 
         json_schema = schema.model_json_schema()
         msgs = _with_schema_instruction(messages, schema)
-        text, usage = self._complete(msgs, images, json_schema)
+        text, usage = complete(msgs, images, json_schema)
         try:
             return GenerateResult(text, self.model, schema.model_validate_json(extract_json(text)), usage)
         except ValidationError as exc:
@@ -129,6 +145,7 @@ class LLMProvider(ABC):
                     f"{_short_errors(exc)}\nReturn the corrected JSON object only.",
                 ),
             ]
+            # 重试只修正格式，不再开放搜索工具
             text2, usage2 = self._complete(retry, images, json_schema)
             try:
                 parsed = schema.model_validate_json(extract_json(text2))

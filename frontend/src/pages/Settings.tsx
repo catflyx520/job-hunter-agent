@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, Capabilities, CliInfo, Provider, ProviderKind, TaskRoute } from "../api";
+import { api, Capabilities, CliInfo, Provider, ProviderKind, SearchSource, TaskRoute } from "../api";
 import CliLoginPanel from "./CliLogin";
 
 const KINDS: { kind: ProviderKind; label: string; needsKey: boolean; needsUrl: boolean; model: string }[] = [
@@ -130,7 +130,99 @@ export default function Settings() {
           </tbody>
         </table>
       </div>
+
+      <SearchSourceCard key={routes.map((r) => r.provider_id).join()} />
     </>
+  );
+}
+
+function SearchSourceCard() {
+  const [src, setSrc] = useState<SearchSource | null>(null);
+  const [kind, setKind] = useState<"none" | "tavily" | "searxng">("none");
+  const [key, setKey] = useState("");
+  const [base, setBase] = useState("");
+  const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api
+      .get<SearchSource>("/api/search/source")
+      .then((s) => {
+        setSrc(s);
+        setKind(s.integration?.kind ?? "none");
+        setBase(s.integration?.base_url ?? "");
+      })
+      .catch((e) => setError(e.message));
+  }, []);
+
+  const save = async () => {
+    setError("");
+    setMsg("");
+    try {
+      const s = await api.put<SearchSource>("/api/search/integration", { kind, api_key: key || null, base_url: base || null });
+      setSrc(s);
+      setKey("");
+      setMsg("已保存。");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  const test = async () => {
+    setError("");
+    setMsg("测试中…");
+    try {
+      const r = await api.post<{ results: number }>("/api/search/integration/test");
+      setMsg(`✅ 连线正常，测试查询回传 ${r.results} 笔结果。`);
+    } catch (e) {
+      setMsg("");
+      setError((e as Error).message);
+    }
+  };
+
+  return (
+    <div className="card">
+      <h3>职位搜索来源</h3>
+      <p className="muted">
+        LinkedIn、Indeed、Built In 等网站要先用网页搜索找到公开职位页。预设用「职位搜索」任务的模型自带搜索（Claude CLI 只开放
+        WebSearch 一个工具，其他任务仍然关闭所有工具）；也可以改用 Tavily（搜索 API，有免费额度）或自己架设的 SearXNG。
+        Greenhouse / Lever / Ashby 走官方公开 API，不需要搜索来源。
+      </p>
+      {src && <p className={src.ready ? "muted" : "error"}>目前：{src.label}</p>}
+      <div className="row">
+        {(
+          [
+            ["none", "模型自带搜索"],
+            ["tavily", "Tavily"],
+            ["searxng", "SearXNG"],
+          ] as const
+        ).map(([k, label]) => (
+          <label key={k} className="inline">
+            <input type="radio" checked={kind === k} onChange={() => setKind(k)} />
+            {label}
+          </label>
+        ))}
+      </div>
+      {kind === "tavily" && (
+        <label style={{ marginTop: 10 }}>
+          Tavily API key{src?.integration?.kind === "tavily" && src.integration.key_last4 ? `（已保存，末四码 ${src.integration.key_last4}；留空则沿用）` : ""}
+          <input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="tvly-…" />
+        </label>
+      )}
+      {kind === "searxng" && (
+        <label style={{ marginTop: 10 }}>
+          SearXNG 网址（需在 settings.yml 开启 json 格式）
+          <input value={base} onChange={(e) => setBase(e.target.value)} placeholder="http://localhost:8888" />
+        </label>
+      )}
+      <div className="row" style={{ marginTop: 10 }}>
+        <button className="primary" onClick={save}>
+          保存
+        </button>
+        {src?.integration && <button onClick={test}>测试连线</button>}
+        {msg && <span className="muted">{msg}</span>}
+      </div>
+      {error && <p className="error">{error}</p>}
+    </div>
   );
 }
 

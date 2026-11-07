@@ -194,3 +194,192 @@ export const api = {
   patch: <T>(p: string, b?: unknown) => request<T>("PATCH", p, b),
   del: (p: string) => request<void>("DELETE", p),
 };
+
+// ---------- M2：职位、匹配、签证、材料 ----------
+
+export interface CompanyRef {
+  id: string;
+  display_name: string;
+  website: string | null;
+  is_staffing_agency: boolean;
+}
+
+export interface JobSummary {
+  id: string;
+  title: string;
+  company: CompanyRef;
+  location_text: string | null;
+  work_mode: string;
+  employment_type: string;
+  salary_min: number | null;
+  salary_max: number | null;
+  salary_period: string | null;
+  sponsorship_policy: "explicit_yes" | "explicit_no" | "unclear";
+  status: string;
+  created_at: string;
+  score: number | null;
+  recommendation: "apply" | "maybe" | "skip" | null;
+  excluded: boolean;
+  sponsor_status: SponsorStatusCode | null;
+  location_tier: number | null;
+  posted_text: string | null;
+  posted_at: string | null;
+  apply_url: string | null;
+}
+
+// ---------- 搜索（F3） ----------
+
+export interface JobSite {
+  id: string;
+  name: string;
+  access_method: "web_search" | "ats_api" | "paste_only";
+  enabled: boolean;
+  max_results: number;
+  sort_order: number;
+  limitation_note: string | null;
+  boards: number;
+}
+
+export interface SearchSource {
+  ready: boolean;
+  label: string;
+  integration: { kind: "tavily" | "searxng"; base_url: string | null; key_last4: string | null } | null;
+}
+
+export interface AtsBoard {
+  company_id: string;
+  company: string;
+  kind: string;
+  token: string;
+}
+
+export type RunSiteStatus = "ok" | "partial" | "blocked" | "failed" | "skipped" | "searching";
+
+export interface RunSite {
+  site_id: string;
+  name: string;
+  status: RunSiteStatus;
+  found_count: number;
+  kept_count: number;
+  message: string | null;
+}
+
+export interface RunJob extends JobSummary {
+  outcome: "kept" | "excluded" | "duplicate";
+  exclusion_reasons: { code: string; label: string }[];
+  found_on: string[];
+}
+
+export interface SearchRun {
+  id: string;
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+  search_source: string | null;
+  sponsor_history: boolean;
+  sites: RunSite[];
+  progress: { phase: string; total: number; done: number; outcomes: Record<string, number> } | null;
+  counts: Record<string, number>;
+}
+
+export interface SearchRunDetail extends SearchRun {
+  jobs: RunJob[];
+}
+
+export type SponsorStatusCode = "records_found" | "no_match_in_scope" | "not_checked" | "employer_unknown";
+
+export interface SponsorYear {
+  fiscal_year: number;
+  filed: number;
+  certified_or_approved: number;
+  denied: number;
+}
+
+export interface SponsorStatus {
+  status: SponsorStatusCode;
+  h1b_years: number[] | null;
+  perm_years: number[] | null;
+  summary: {
+    notes: string[];
+    reason?: string;
+    programs: Record<string, SponsorYear[]>;
+    entities: { name: string; method: string; evidence_url: string | null; note: string | null }[];
+    pending: {
+      alias_id: string;
+      name: string;
+      city: string | null;
+      state: string | null;
+      method: string;
+      confidence: number;
+      evidence_url: string | null;
+      note: string | null;
+    }[];
+  };
+  coverage: { programs: Record<string, number[]>; sources: string[]; dataset_count: number };
+  computed_at: string;
+}
+
+export interface BreakdownPart {
+  score: number;
+  max: number;
+  reason: string;
+}
+
+export interface Match {
+  id: string;
+  score: number;
+  breakdown: Record<"role" | "tech" | "experience" | "location" | "recency", BreakdownPart>;
+  recommendation: "apply" | "maybe" | "skip";
+  reasons: { text: string; chunk_ids: string[] }[];
+  gaps: { text: string; severity: "low" | "medium" | "high" }[];
+  exclusion_reasons: string[] | null;
+  model: string;
+  preferences_version: number;
+  created_at: string;
+}
+
+export interface JobDetail extends JobSummary {
+  requisition_id: string | null;
+  seniority: string | null;
+  location_tier: number | null;
+  salary_currency: string | null;
+  posted_text: string | null;
+  sponsorship_evidence: string | null;
+  new_grad_only: boolean | null;
+  citizenship_required: boolean | null;
+  clearance_required: boolean | null;
+  easy_apply: boolean | null;
+  apply_url: string | null;
+  verification_source: string | null;
+  verified_at: string | null;
+  jd_text: string | null;
+  extracted: { required_skills?: string[]; nice_to_have_skills?: string[] } | null;
+  sources: { site_id: string; url: string }[];
+  exclusion: { reasons: { code: string; label: string }[]; flags: { code: string; label: string }[] };
+  match: Match | null;
+  sponsor: SponsorStatus | null;
+  evidence: Record<string, string>;
+}
+
+export interface Material {
+  id: string;
+  job_id: string | null;
+  kind: "cover_letter" | "qa";
+  question: string | null;
+  requirements: string | null;
+  jd_source: string;
+  facts_used: string[] | null;
+  status: string;
+  output_text: string | null;
+  edited_text: string | null;
+  needs_confirmation: { item: string; why: string }[] | null;
+  citations: { sentence: string; chunk_ids: string[]; fact_keys: string[]; supported: boolean }[] | null;
+  provider_kind: string;
+  model: string;
+  error: string | null;
+  created_at: string;
+  images: { position: number; mime: string; width: number; height: number; size_bytes: number }[];
+  evidence: Record<string, string>;
+}

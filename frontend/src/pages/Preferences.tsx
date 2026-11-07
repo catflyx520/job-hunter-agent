@@ -174,16 +174,10 @@ export default function Preferences() {
 
       <div className="card">
         <h3>搜索设置</h3>
-        <p className="muted">要搜的网站在 M3（自动搜索）加入。</p>
+        <p className="muted">
+          要搜的网站与每个网站的上限在「<a href="/jobs">职位搜索</a>」页设定。这里的总上限限制每次搜索最多处理几个职位（每个职位要读取、抽取并评分，约 20–40 秒）。
+        </p>
         <div className="grid">
-          <label>
-            每个网站上限
-            <input
-              type="number"
-              value={prefs.search.per_site_limit}
-              onChange={(e) => set({ search: { ...prefs.search, per_site_limit: Number(e.target.value) } })}
-            />
-          </label>
           <label>
             总上限
             <input

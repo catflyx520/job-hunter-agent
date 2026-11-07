@@ -1,10 +1,10 @@
 # job-hunter-agent
 
-Open-source, local-first job hunting assistant. Connect your own model (API key / Ollama / your local Claude Code or Codex CLI), upload your resume and preferences, get transparent resume reviews — and, in later milestones, job search with match scores, H-1B / green card history, and cover letter drafts.
+Open-source, local-first job hunting assistant. Connect your own model (API key / Ollama / your local Claude Code or Codex CLI), upload your resume and preferences, then paste jobs to get evidence-backed match scores, H-1B / green card employer history, and cover letter / application answer drafts. Automatic job search and application tracking come in later milestones.
 
 [中文说明](README.zh-CN.md) · Spec: [docs/SPEC.md](docs/SPEC.md)
 
-> Status: **M1** (skeleton, model connections incl. one-click CLI login, resume & preferences, resume review). The app never applies to jobs, fills forms, or contacts employers for you.
+> Status: **M3** — model connections (incl. one-click CLI login), resume review, automatic job search across the sites you pick (public job pages on LinkedIn, Built In, YC and more, plus the public Greenhouse / Lever / Ashby APIs) → de-duplication, hard exclusions, match scores with resume evidence, H-1B / PERM employer history; paste a job URL / JD; cover letters and application answers (with screenshots). The app never applies to jobs, fills forms, or contacts employers for you.
 
 ## Requirements
 
@@ -42,6 +42,27 @@ If the backend runs on another port, start the frontend with `API_PORT=<port> pn
 ## Local Claude Code / Codex CLI
 
 The CLI providers call *your* `claude` / `codex` as a subprocess and use your own subscription. In **Settings → 本机 CLI 登录** you can see the login status and sign in with one click: the app runs the CLI's own login command, shows you the official authorization link, and passes the verification code back to the CLI. Credentials are stored by the CLI; the app never reads or stores tokens. You can still log in from your own terminal instead.
+
+## Job search
+
+On the **职位搜索** (Job search) page, pick sites and a per-site limit, then start a search. Each search is a batch (ID like `2026-11-07-A`) that reports how many jobs each site found and kept, and why any pages could not be read.
+
+- LinkedIn, Indeed, Built In, YC and similar: a web search finds public job pages, then the app reads them. By default this uses the web search built into the model assigned to the "job search" task (the Claude CLI gets the WebSearch tool for this task only). You can switch to [Tavily](https://tavily.com) or a self-hosted [SearXNG](https://docs.searxng.org) under Settings.
+- Greenhouse / Lever / Ashby: reads the companies' public job board JSON; no search source needed. Company boards are remembered from job pages you've read, or you can add them by hand.
+- Public pages only. The app stops at sign-in, CAPTCHA or verification pages and records why; it never tries to get around them. Without signing in, LinkedIn and Indeed pages are often unreadable — that is expected.
+- Each job takes about 20–40 seconds to read, extract and score; jobs hit by a hard exclusion are not scored.
+
+## H-1B / green card history data
+
+Employer history comes from official public data: DOL LCA and PERM disclosure files, and the USCIS H-1B Employer Data Hub.
+
+```bash
+cd backend
+uv run python ../scripts/sponsor_data/download.py     # last 3 fiscal years by default
+uv run python ../scripts/sponsor_data/build.py        # aggregate and import into the database
+```
+
+The official sites usually block scripted downloads (HTTP 403). The tool does not try to get around that: it prints the official URLs so you can download them in your browser. Keep the original file names and put the files in `data/sponsor/raw/`, then run `build.py`. History records never mean a job will sponsor you; each job page shows the JD's own policy separately.
 
 ## Tests
 

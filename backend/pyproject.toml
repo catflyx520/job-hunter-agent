@@ -22,6 +22,9 @@ dependencies = [
   "python-docx>=1.1",
   "python-multipart>=0.0.17",
   "langgraph>=0.2.50",
+  "openpyxl>=3.1.5",
+  "pillow>=13.0.0",
+  "certifi>=2026.10.23",
 ]
 
 [dependency-groups]

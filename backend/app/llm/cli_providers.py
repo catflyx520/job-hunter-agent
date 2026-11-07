@@ -28,6 +28,8 @@ _sem_lock = threading.Lock()
 # 不传给 CLI 的环境变量：让 CLI 用用户自己的登录状态，而不是 app 里设定的 key
 _STRIP_ENV = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "APP_SECRET_KEY", "DATABASE_URL")
 
+SEARCH_TIMEOUT = 420  # 网页搜索要多轮查询，给比一般生成更长的时间
+
 _EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp"}
 
 
@@ -75,9 +77,12 @@ def detect_cli(name: str) -> CliStatus:
         return CliStatus(name, False, error=f"`{name} --version` 执行失败。")
 
 
-def run_cli(args: list[str], stdin_text: str, who: str, cwd: str | None = None, cli: str = "") -> str:
+def run_cli(
+    args: list[str], stdin_text: str, who: str, cwd: str | None = None, cli: str = "", timeout: int | None = None
+) -> str:
     """执行 CLI，回传 stdout。错误讯息不含原始 log、凭证或路径。"""
     settings = get_settings()
+    timeout = timeout or settings.cli_timeout_seconds
     env = {k: v for k, v in os.environ.items() if k not in _STRIP_ENV}
     with _sem():
         try:
@@ -85,13 +90,13 @@ def run_cli(args: list[str], stdin_text: str, who: str, cwd: str | None = None, 
                 args,
                 input=stdin_text.encode("utf-8"),
                 capture_output=True,
-                timeout=settings.cli_timeout_seconds,
+                timeout=timeout,
                 env=env,
                 cwd=cwd,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except subprocess.TimeoutExpired as exc:
-            raise LLMError(f"{who} 生成逾时（{settings.cli_timeout_seconds} 秒），可重试。") from exc
+            raise LLMError(f"{who} 生成逾时（{timeout} 秒），可重试。") from exc
         except OSError as exc:
             raise LLMError(f"无法启动 {who}，请确认已安装。") from exc
     out = proc.stdout.decode("utf-8", errors="replace")
@@ -115,14 +120,15 @@ class ClaudeCliProvider(LLMProvider):
     def __init__(self, model: str, capabilities: Capabilities | None = None):
         super().__init__(model, capabilities)
 
-    def build_args(self, exe: str) -> list[str]:
+    def build_args(self, exe: str, search: bool = False) -> list[str]:
+        # 一般任务停用所有内建工具；职位搜索只开放 WebSearch（网页由 app 自己用安全读取去读）
+        tools = ["--tools", "WebSearch", "--allowedTools", "WebSearch"] if search else ["--tools", ""]
         args = [
             exe,
             "-p",
             "--output-format",
             "json",
-            "--tools",
-            "",  # 停用所有内建工具（shell、文件读写、web 等）
+            *tools,
             "--strict-mcp-config",  # 不载入任何 MCP server
             "--setting-sources",
             "",  # 不载入 user/project 设定（hooks、权限等）
@@ -132,14 +138,21 @@ class ClaudeCliProvider(LLMProvider):
             args += ["--model", self.model]
         return args
 
-    def _complete(self, messages, images, json_mode):
+    def _complete(self, messages, images, json_mode, search: bool = False):
         if images:
             raise LLMError("Claude Code CLI 模式不支援图片。")
         exe = find_executable("claude")
         if not exe:
             raise LLMError("找不到本机 `claude`，请先安装 Claude Code 并在终端登录。")
         with tempfile.TemporaryDirectory(prefix="jha-claude-") as workdir:
-            out = run_cli(self.build_args(exe), flatten_prompt(messages), self.label, cwd=workdir, cli="claude")
+            out = run_cli(
+                self.build_args(exe, search),
+                flatten_prompt(messages),
+                self.label,
+                cwd=workdir,
+                cli="claude",
+                timeout=SEARCH_TIMEOUT if search else None,
+            )
         try:
             result = parse_claude_output(out)
         except LLMError as exc:
@@ -148,6 +161,9 @@ class ClaudeCliProvider(LLMProvider):
             raise exc
         auth_state.clear("claude")
         return result
+
+    def _complete_search(self, messages, json_mode):
+        return self._complete(messages, None, json_mode, search=True)
 
 
 def parse_claude_output(out: str) -> tuple[str, dict[str, Any]]:
@@ -187,7 +203,7 @@ class CodexCliProvider(LLMProvider):
     def __init__(self, model: str, capabilities: Capabilities | None = None):
         super().__init__(model, capabilities)
 
-    def build_args(self, exe: str, workdir: str, image_paths: list[str]) -> list[str]:
+    def build_args(self, exe: str, workdir: str, image_paths: list[str], search: bool = False) -> list[str]:
         args = [
             exe,
             "exec",
@@ -202,7 +218,7 @@ class CodexCliProvider(LLMProvider):
             "--cd",
             workdir,
             "-c",
-            'web_search="disabled"',
+            'web_search="live"' if search else 'web_search="disabled"',
         ]
         if self.model and self.model != "default":
             args += ["--model", self.model]
@@ -213,7 +229,10 @@ class CodexCliProvider(LLMProvider):
         args.append("-")
         return args
 
-    def _complete(self, messages, images, json_mode):
+    def _complete_search(self, messages, json_mode):
+        return self._complete(messages, None, json_mode, search=True)
+
+    def _complete(self, messages, images, json_mode, search: bool = False):
         exe = find_executable("codex")
         if not exe:
             raise LLMError("找不到本机 `codex`，请先安装 Codex CLI 并在终端登录。")
@@ -224,14 +243,19 @@ class CodexCliProvider(LLMProvider):
                 p.write_bytes(img.data)
                 paths.append(str(p))
             out = run_cli(
-                self.build_args(exe, workdir, paths), flatten_prompt(messages), self.label, cwd=workdir, cli="codex"
+                self.build_args(exe, workdir, paths, search),
+                flatten_prompt(messages),
+                self.label,
+                cwd=workdir,
+                cli="codex",
+                timeout=SEARCH_TIMEOUT if search else None,
             )
-        result = parse_codex_output(out)
+        result = parse_codex_output(out, allow_search=search)
         auth_state.clear("codex")
         return result
 
 
-def parse_codex_output(out: str) -> tuple[str, dict[str, Any]]:
+def parse_codex_output(out: str, allow_search: bool = False) -> tuple[str, dict[str, Any]]:
     answers: list[str] = []
     usage: dict[str, Any] = {}
     for line in out.splitlines():
@@ -240,7 +264,8 @@ def parse_codex_output(out: str) -> tuple[str, dict[str, Any]]:
         except ValueError:
             continue
         item = event.get("item", {}) or {}
-        if item.get("type") in ("command_execution", "mcp_tool_call", "file_change", "web_search"):
+        forbidden = ("command_execution", "mcp_tool_call", "file_change") + (() if allow_search else ("web_search",))
+        if item.get("type") in forbidden:
             raise LLMError("Codex 尝试使用文字生成以外的工具，结果未采用。")
         if event.get("type") == "item.completed" and item.get("type") == "agent_message":
             answers.append(item.get("text", ""))

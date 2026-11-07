@@ -61,6 +61,19 @@ class OpenAIProvider(LLMProvider):
         usage = resp.usage.model_dump() if resp.usage else {}
         return resp.choices[0].message.content or "", usage
 
+    def _complete_search(self, messages, json_mode):
+        """Responses API + 内建 web_search 工具。"""
+        system = "\n\n".join(m.content for m in messages if m.role == "system")
+        convo = [{"role": m.role, "content": m.content} for m in messages if m.role != "system"]
+        try:
+            resp = self._client.responses.create(
+                model=self.model, instructions=system or None, input=convo, tools=[{"type": "web_search"}]
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise _friendly(exc, self.label) from exc
+        usage = resp.usage.model_dump() if getattr(resp, "usage", None) else {}
+        return resp.output_text or "", usage
+
     def embed(self, texts: list[str]) -> list[list[float]]:
         try:
             resp = self._client.embeddings.create(model=self.model, input=texts)
@@ -79,6 +92,9 @@ class OpenAICompatibleProvider(OpenAIProvider):
     kind = "openai_compatible"
     label = "OpenAI 兼容端点"
 
+    def _complete_search(self, messages, json_mode):
+        return LLMProvider._complete_search(self, messages, json_mode)
+
     def _complete(self, messages, images, json_mode):
         # 很多兼容端点不支援 response_format，统一靠提示词 + Pydantic 验证
         return super()._complete(messages, images, None)
@@ -95,7 +111,7 @@ class AnthropicProvider(LLMProvider):
 
         self._client = Anthropic(api_key=api_key, timeout=REQUEST_TIMEOUT)
 
-    def _complete(self, messages, images, json_mode):
+    def _complete(self, messages, images, json_mode, tools: list[dict[str, Any]] | None = None):
         system = "\n\n".join(m.content for m in messages if m.role == "system")
         convo = [m for m in messages if m.role != "system"]
         last_user = max((i for i, m in enumerate(convo) if m.role == "user"), default=-1)
@@ -113,12 +129,26 @@ class AnthropicProvider(LLMProvider):
         kwargs: dict[str, Any] = {"model": self.model, "max_tokens": self.max_tokens, "messages": payload}
         if system:
             kwargs["system"] = system
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["max_tokens"] = 8192
         try:
             resp = self._client.messages.create(**kwargs)
+            # 服务端工具（web search）跑太久时会回 pause_turn，接着让它继续，最多 3 次
+            for _ in range(3):
+                if getattr(resp, "stop_reason", "") != "pause_turn":
+                    break
+                kwargs["messages"] = payload + [{"role": "assistant", "content": resp.content}]
+                resp = self._client.messages.create(**kwargs)
         except Exception as exc:  # noqa: BLE001
             raise _friendly(exc, self.label) from exc
         text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
         return text, resp.usage.model_dump() if resp.usage else {}
+
+    def _complete_search(self, messages, json_mode):
+        return self._complete(
+            messages, None, json_mode, tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 8}]
+        )
 
     def list_models(self) -> list[str]:
         try:

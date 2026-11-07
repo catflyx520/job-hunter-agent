@@ -72,23 +72,54 @@ def database():
     return get_engine()
 
 
-TABLES = "facts, preferences, resume_reviews, experience_chunks, resumes, integrations, task_routes, llm_providers"
+KEEP_TABLES = {"job_sites"}  # migration 预载的种子资料
+
+
+def truncate_all(engine) -> None:
+    import app.models  # noqa: F401
+    from app.core.db import Base
+
+    tables = ", ".join(t for t in Base.metadata.tables if t not in KEEP_TABLES)
+    with engine.begin() as conn:
+        conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
+        conn.execute(text("UPDATE job_sites SET enabled = false, max_results = 20"))
+
+
+# 所有取得 provider 的地方都换成假 provider
+PROVIDER_LOOKUPS = (
+    "app.api.resumes",
+    "app.api.jobs",
+    "app.jobs.service",
+    "app.materials.service",
+    "app.rag.retrieve",
+    "app.search.process",
+    "app.search.web",
+)
+
+
+@pytest.fixture
+def db_session(database):
+    from app.core.db import get_sessionmaker
+
+    truncate_all(database)
+    with get_sessionmaker()() as s:
+        yield s
+        s.rollback()
 
 
 @pytest.fixture
 def client(database, monkeypatch):
+    import importlib
+
     from fastapi.testclient import TestClient
 
     from app.main import create_app
 
-    with database.begin() as conn:
-        conn.execute(text(f"TRUNCATE {TABLES} CASCADE"))
-
+    truncate_all(database)
     fake = FakeProvider(fake_responder, embed_dim=get_settings().embedding_dim)
     fake.kind = "fake"
-    import app.api.resumes as resumes_api
-
-    monkeypatch.setattr(resumes_api, "provider_for_task", lambda db, task: fake)
+    for module in PROVIDER_LOOKUPS:
+        monkeypatch.setattr(importlib.import_module(module), "provider_for_task", lambda db, task: fake)
     with TestClient(create_app()) as c:
         c.fake = fake  # type: ignore[attr-defined]
         yield c
