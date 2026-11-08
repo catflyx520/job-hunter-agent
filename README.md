@@ -4,7 +4,7 @@ Open-source, local-first job hunting assistant. Connect your own model (API key 
 
 [中文说明](README.zh-CN.md) · Spec: [docs/SPEC.md](docs/SPEC.md)
 
-> Status: **M3** — model connections (incl. one-click CLI login), resume review, automatic job search across the sites you pick (public job pages on LinkedIn, Built In, YC and more, plus the public Greenhouse / Lever / Ashby APIs) → de-duplication, hard exclusions, match scores with resume evidence, H-1B / PERM employer history; paste a job URL / JD; cover letters and application answers (with screenshots). The app never applies to jobs, fills forms, or contacts employers for you.
+> Status: **M4 (local)** — model connections (incl. one-click CLI login), resume review, automatic job search across the sites you pick (public job pages on LinkedIn, Built In, YC and more, plus the public Greenhouse / Lever / Ashby APIs) → de-duplication, hard exclusions, match scores with resume evidence, H-1B / PERM employer history; paste a job URL / JD; cover letters and application answers (with screenshots); application tracking and a stats page. The app never applies to jobs, fills forms, or contacts employers for you.
 
 ## Requirements
 
@@ -52,6 +52,12 @@ On the **职位搜索** (Job search) page, pick sites and a per-site limit, then
 - Public pages only. The app stops at sign-in, CAPTCHA or verification pages and records why; it never tries to get around them. Without signing in, LinkedIn and Indeed pages are often unreadable — that is expected.
 - Each job takes about 20–40 seconds to read, extract and score; jobs hit by a hard exclusion are not scored.
 
+## Application tracking and stats
+
+Mark a job as saved → applied → interviewing → offer / rejected / ghosted (or dismiss it and restore it later). Every change is kept in a history; the "applied" time is the time you marked it — the app never invents submission times or applies for you.
+
+The stats page shows totals, a funnel, reply rate, source sites, sponsorship policy and visa history breakdowns, exclusion reasons, salary and score distributions, daily / weekly trends and a backlog. Filter by company, site, batch, location, status or date, and click any bar to see the jobs behind it.
+
 ## H-1B / green card history data
 
 Employer history comes from official public data: DOL LCA and PERM disclosure files, and the USCIS H-1B Employer Data Hub.
@@ -74,6 +80,18 @@ uv run ruff check .
 ```
 
 LLM tests use a fake provider and never call real APIs. API tests use a separate `jobhunter_test` database and are skipped if Postgres isn't reachable.
+
+### Evals
+
+`evals/datasets/cases.py` holds 5 fictional job seekers, 40 labeled job descriptions and 50 company-name pairs (all synthetic).
+
+```bash
+cd backend
+uv run python ../evals/run_evals.py                                                   # no model calls (also runs in CI)
+uv run python ../evals/run_evals.py --suite llm --provider claude_cli --model sonnet  # uses your own model
+```
+
+The `llm` suite measures extraction accuracy, hard-exclusion precision / recall, recommendation accuracy, cover letter citation rate, and whether application answers flag what needs your confirmation. Thresholds live in `evals/thresholds.json`; the run exits non-zero when a metric drops below them.
 
 ## License
 

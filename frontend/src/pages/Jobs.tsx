@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, AtsBoard, JobDetail, JobSite, JobSummary, RunJob, SearchRun, SearchRunDetail, SearchSource } from "../api";
+import { StatusSelect } from "./ApplicationControl";
 import { RECOMMENDATION, RUN_SITE_STATUS, RUN_STATUS, SPONSOR_STATUS, WORK_MODE, salary, show } from "./labels";
 
 interface Prefs {
@@ -386,6 +387,9 @@ function JobTable({ jobs, showVisa }: { jobs: (JobSummary | RunJob)[]; showVisa:
                 ) : (
                   <span className="muted">{j.excluded ? "已排除，未评分" : "未评分"}</span>
                 )}
+              </td>
+              <td style={{ width: 100 }}>
+                <StatusSelect jobId={j.id} status={j.application_status} />
               </td>
               <td style={{ width: 230 }}>
                 {run?.outcome === "duplicate" && <span className="badge">之前批次已有</span>}{" "}

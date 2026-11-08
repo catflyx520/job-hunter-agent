@@ -212,7 +212,8 @@ class Fact(Base):
     updated_at: Mapped[datetime] = _updated()
 
 
-# M2：C（职位）、D（签证）、E（材料）组。放在最后 import，避免循环引用。
+# M2：C（职位）、D（签证）、E（材料）组；M4：F（投递）组。放在最后 import，避免循环引用。
+from app.models.applications import *  # noqa: E402,F403
 from app.models.jobs import *  # noqa: E402,F403
 from app.models.materials import *  # noqa: E402,F403
 from app.models.sponsor import *  # noqa: E402,F403

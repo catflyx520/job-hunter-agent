@@ -79,6 +79,7 @@ class JobSummary(BaseModel):
     posted_text: str | None = None
     posted_at: datetime | None = None
     apply_url: str | None = None
+    application_status: str | None = None  # 投递状态（未标记为空）
 
 
 class JobDetail(JobSummary):

@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy import text
 
-from app.api import jobs, materials, profile, providers, resumes, search
+from app.api import applications, jobs, materials, profile, providers, resumes, search, stats
 from app.core.db import get_engine
 from app.search.runner import recover_interrupted
 
@@ -22,6 +22,8 @@ def create_app() -> FastAPI:
     app.include_router(jobs.router)
     app.include_router(materials.router)
     app.include_router(search.router)
+    app.include_router(applications.router)
+    app.include_router(stats.router)
 
     @app.get("/api/health")
     def health():

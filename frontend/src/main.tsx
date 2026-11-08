@@ -9,6 +9,7 @@ import Materials from "./pages/Materials";
 import Preferences from "./pages/Preferences";
 import Resumes from "./pages/Resumes";
 import Settings from "./pages/Settings";
+import Stats from "./pages/Stats";
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
       <nav className="sidebar">
         <h1>Job Hunter</h1>
         <NavLink to="/jobs">职位搜索</NavLink>
+        <NavLink to="/stats">投递统计</NavLink>
         <NavLink to="/materials">Cover letter / 问答</NavLink>
         <NavLink to="/resumes">履历与评分</NavLink>
         <NavLink to="/preferences">求职需求</NavLink>
@@ -27,6 +29,7 @@ function App() {
           <Route path="/" element={<Navigate to="/resumes" replace />} />
           <Route path="/jobs" element={<Jobs />} />
           <Route path="/jobs/:id" element={<JobDetail />} />
+          <Route path="/stats" element={<Stats />} />
           <Route path="/materials" element={<Materials />} />
           <Route path="/resumes" element={<Resumes />} />
           <Route path="/preferences" element={<Preferences />} />

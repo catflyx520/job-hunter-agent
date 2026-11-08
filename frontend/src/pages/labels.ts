@@ -65,3 +65,14 @@ export const RUN_SITE_STATUS: Record<string, { text: string; cls: string }> = {
   failed: { text: "失败", cls: "fail" },
   skipped: { text: "略过", cls: "" },
 };
+
+export const APP_STATUS: Record<string, { text: string; cls: string }> = {
+  saved: { text: "收藏", cls: "" },
+  applied: { text: "已投递", cls: "pass" },
+  interviewing: { text: "面试中", cls: "pass" },
+  offer: { text: "Offer", cls: "pass" },
+  rejected: { text: "被拒", cls: "fail" },
+  ghosted: { text: "无回音", cls: "warn" },
+  dismissed: { text: "已删除", cls: "" },
+};
+export const APP_STATUS_ORDER = ["saved", "applied", "interviewing", "offer", "rejected", "ghosted", "dismissed"] as const;

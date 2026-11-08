@@ -65,3 +65,23 @@ pre.evidence { white-space: pre-wrap; font-size: 12px; color: var(--muted); marg
 details.card > summary { cursor: pointer; }
 details.card[open] > summary { margin-bottom: 4px; }
 th { white-space: nowrap; }
+/* 统计页 */
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.tile { margin-bottom: 0; }
+.tile b { font-size: 28px; display: block; margin-top: 4px; }
+.clickable { cursor: pointer; }
+.clickable:hover { border-color: var(--accent); }
+tr.clickable:hover td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.chart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 0 16px; }
+.barlist { display: flex; flex-direction: column; gap: 2px; }
+.barrow { display: grid; grid-template-columns: minmax(90px, 40%) 1fr 40px; align-items: center; gap: 8px; width: 100%; padding: 4px 6px; border: none; background: transparent; text-align: left; font-size: 13px; }
+.barrow:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.barrow:disabled { opacity: .5; }
+.barlabel { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bartrack { height: 12px; }
+.bar { display: block; height: 12px; min-width: 2px; background: var(--accent); border-radius: 0 4px 4px 0; }
+.barvalue { text-align: right; font-variant-numeric: tabular-nums; color: var(--text); }
+.trend { display: flex; align-items: flex-end; gap: 2px; height: 140px; border-bottom: 1px solid var(--border); }
+.trendcol { flex: 1; height: 100%; display: flex; align-items: flex-end; min-width: 4px; cursor: default; }
+.trendcol:hover { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.trendbar { display: block; width: 100%; min-height: 1px; background: var(--accent); border-radius: 4px 4px 0 0; }

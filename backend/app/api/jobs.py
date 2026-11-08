@@ -14,7 +14,7 @@ from app.jobs.exclusion import FLAG_LABELS, REASON_LABELS, check_exclusions
 from app.jobs.service import IngestError, ingest, load_preferences, match_job
 from app.llm.base import LLMError
 from app.llm.registry import provider_for_task
-from app.models import Company, CompanySponsorStatus, EmployerAlias, Job, JobMatch
+from app.models import Application, Company, CompanySponsorStatus, EmployerAlias, Job, JobMatch
 from app.rag.retrieve import evidence_texts
 from app.schemas.job import (
     AliasDecision,
@@ -49,6 +49,7 @@ def _summary(db: Session, job: Job) -> dict:
         "recommendation": m.recommendation if m else None,
         "excluded": check_exclusions(job, prefs).excluded,
         "sponsor_status": st.status if st else None,
+        "application_status": db.scalar(select(Application.status).where(Application.job_id == job.id)),
     }
 
 

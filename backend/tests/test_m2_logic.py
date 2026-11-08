@@ -282,3 +282,18 @@ def test_verify_draft_flags_unsupported_claims_and_numbers():
     assert "start date" in items  # 占位符
     assert "期望薪资" in items  # 模型自己列的保留
     assert any("不存在的证据" in n["why"] for n in needs)
+
+
+@pytest.mark.parametrize(
+    "a, b",
+    [
+        ("Quarry Cloud LLC", "Quarry Cloud, L.L.C."),
+        ("Mission Retail S.A.", "Mission Retail"),
+        ("Lakefront Bank, N.A.", "Lakefront Bank"),
+        ("J.P. Morgan Chase & Co.", "JP Morgan Chase"),
+    ],
+)
+def test_normalize_company_dotted_suffixes(a, b):
+    from app.jobs.normalize import normalize_company
+
+    assert normalize_company(a) == normalize_company(b)

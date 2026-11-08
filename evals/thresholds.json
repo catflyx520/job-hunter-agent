@@ -1,0 +1,24 @@
+{
+  "program": {
+    "exclusion_rules.precision": 1.0,
+    "exclusion_rules.recall": 1.0,
+    "exclusion_rules.case_accuracy": 1.0,
+    "evidence_guard.accuracy": 1.0,
+    "entity_normalization.accuracy": 1.0,
+    "truth_check.accuracy": 1.0
+  },
+  "llm": {
+    "extraction.sponsorship_policy": 0.95,
+    "extraction.new_grad_only": 0.95,
+    "extraction.citizenship_required": 0.95,
+    "extraction.employment_type": 0.9,
+    "exclusions.precision": 0.9,
+    "exclusions.recall": 0.9,
+    "recommendation.exact": 0.6,
+    "recommendation.within_one": 0.85,
+    "materials.cover_supported_ratio": 0.9,
+    "materials.cover_no_unsourced_numbers": 0.8,
+    "materials.qa_salary_flagged": 1.0,
+    "materials.qa_start_ok": 0.8
+  }
+}

@@ -144,7 +144,7 @@ class ClaudeCliProvider(LLMProvider):
         exe = find_executable("claude")
         if not exe:
             raise LLMError("找不到本机 `claude`，请先安装 Claude Code 并在终端登录。")
-        with tempfile.TemporaryDirectory(prefix="jha-claude-") as workdir:
+        with tempfile.TemporaryDirectory(prefix="jha-claude-", ignore_cleanup_errors=True) as workdir:
             out = run_cli(
                 self.build_args(exe, search),
                 flatten_prompt(messages),
@@ -236,7 +236,7 @@ class CodexCliProvider(LLMProvider):
         exe = find_executable("codex")
         if not exe:
             raise LLMError("找不到本机 `codex`，请先安装 Codex CLI 并在终端登录。")
-        with tempfile.TemporaryDirectory(prefix="jha-codex-") as workdir:
+        with tempfile.TemporaryDirectory(prefix="jha-codex-", ignore_cleanup_errors=True) as workdir:
             paths = []
             for i, img in enumerate(images or []):
                 p = Path(workdir) / f"image-{i}{_EXT.get(img.mime, '.png')}"

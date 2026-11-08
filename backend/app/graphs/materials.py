@@ -135,6 +135,33 @@ def load_confirmed_facts(db: Session) -> list[FactItem]:
     return [FactItem(f.key, f.question, f.value) for f in rows if f.value.strip()]
 
 
+def generate_draft(provider: LLMProvider, state: MaterialState) -> Draft:
+    """生成草稿（不碰数据库；evals 也直接呼叫这个函式）。"""
+    ev = "\n".join(f"[{e.id}] ({e.section}) {e.text}" for e in state["evidence"]) or "(none)"
+    facts = "\n".join(f"[{f.key}] {f.question} → {f.value}" for f in state["facts"]) or "(none confirmed)"
+    parts = [
+        KIND_GUIDE[state["kind"]],
+        LANG[state.get("language", "en")],
+        f"Job: {state.get('job_title') or 'unknown'} at {state.get('company') or 'unknown'}",
+        f"JD:\n<<<\n{state.get('jd_text') or '(no JD provided)'}\n>>>",
+    ]
+    if state.get("question"):
+        parts.append(f"Application question:\n<<<\n{state['question']}\n>>>")
+    if state.get("images"):
+        parts.append(f"{len(state['images'])} screenshot(s) attached in order; they may contain the question(s).")
+    if state.get("requirements"):
+        parts.append(f"Length / tone requirements: {state['requirements']}")
+    parts.append(f"Resume evidence (cite by ID):\n{ev}")
+    parts.append(f"Confirmed personal facts (cite by key):\n{facts}")
+    result = provider.generate(
+        [Message("system", SYSTEM), Message("user", "\n\n".join(parts))],
+        schema=Draft,
+        images=state.get("images") or None,
+    )
+    assert isinstance(result.parsed, Draft)
+    return result.parsed
+
+
 def build_graph(provider: LLMProvider, db: Session, resume: Resume):
     def retrieve_evidence(state: MaterialState) -> MaterialState:
         query = "\n".join(
@@ -148,29 +175,7 @@ def build_graph(provider: LLMProvider, db: Session, resume: Resume):
         return {"facts": load_confirmed_facts(db)}
 
     def generate(state: MaterialState) -> MaterialState:
-        ev = "\n".join(f"[{e.id}] ({e.section}) {e.text}" for e in state["evidence"]) or "(none)"
-        facts = "\n".join(f"[{f.key}] {f.question} → {f.value}" for f in state["facts"]) or "(none confirmed)"
-        parts = [
-            KIND_GUIDE[state["kind"]],
-            LANG[state.get("language", "en")],
-            f"Job: {state.get('job_title') or 'unknown'} at {state.get('company') or 'unknown'}",
-            f"JD:\n<<<\n{state.get('jd_text') or '(no JD provided)'}\n>>>",
-        ]
-        if state.get("question"):
-            parts.append(f"Application question:\n<<<\n{state['question']}\n>>>")
-        if state.get("images"):
-            parts.append(f"{len(state['images'])} screenshot(s) attached in order; they may contain the question(s).")
-        if state.get("requirements"):
-            parts.append(f"Length / tone requirements: {state['requirements']}")
-        parts.append(f"Resume evidence (cite by ID):\n{ev}")
-        parts.append(f"Confirmed personal facts (cite by key):\n{facts}")
-        result = provider.generate(
-            [Message("system", SYSTEM), Message("user", "\n\n".join(parts))],
-            schema=Draft,
-            images=state.get("images") or None,
-        )
-        assert isinstance(result.parsed, Draft)
-        return {"draft": result.parsed}
+        return {"draft": generate_draft(provider, state)}
 
     def verify(state: MaterialState) -> MaterialState:
         reference = " ".join(filter(None, [state.get("jd_text"), state.get("question"), state.get("requirements")]))

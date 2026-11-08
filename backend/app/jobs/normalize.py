@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 # 法律实体后缀（比对时去掉）
 _SUFFIXES = {
     "inc", "incorporated", "llc", "l l c", "ltd", "limited", "corp", "corporation", "co", "company",
-    "plc", "lp", "llp", "pc", "pllc", "gmbh", "sa", "ag", "bv", "ulc", "pbc", "holdings",
+    "plc", "lp", "llp", "pc", "pllc", "gmbh", "sa", "ag", "bv", "ulc", "pbc", "na", "holdings",
 }  # fmt: skip
 _DBA = re.compile(r"\b(?:d\s*/?\s*b\s*/?\s*a|dba|doing business as)\b.*$")
 
@@ -17,10 +17,13 @@ _DBA = re.compile(r"\b(?:d\s*/?\s*b\s*/?\s*a|dba|doing business as)\b.*$")
 def normalize_company(name: str) -> str:
     """'Acme Analytics, Inc. d/b/a Acme' → 'acme analytics'。用于去重与签证资料比对。"""
     s = name.lower().replace("&", " and ")
+    # 带点号的缩写后缀（L.L.C.、S.A.、B.V.、N.A.）先合并成 llc、sa、bv、na
+    s = re.sub(r"\b(?:[a-z]\.\s?){2,}", lambda m: m.group(0).replace(".", "").replace(" ", "") + " ", s)
     s = _DBA.sub("", s)
     s = re.sub(r"[^a-z0-9]+", " ", s).strip()
     words = s.split()
-    while words and (words[-1] in _SUFFIXES or " ".join(words[-2:]) in _SUFFIXES):
+    while words and (words[-1] in _SUFFIXES or " ".join(words[-2:]) in _SUFFIXES or words[-1] == "and"):
+        # 「& Co.」去掉 co 之后会剩下 and，一并去掉
         words = words[:-2] if " ".join(words[-2:]) in _SUFFIXES else words[:-1]
     if words and words[0] == "the" and len(words) > 1:
         words = words[1:]

@@ -225,6 +225,25 @@ export interface JobSummary {
   posted_text: string | null;
   posted_at: string | null;
   apply_url: string | null;
+  application_status: ApplicationStatus | null;
+}
+
+// ---------- 投递追踪（F5） ----------
+
+export type ApplicationStatus = "saved" | "applied" | "interviewing" | "offer" | "rejected" | "ghosted" | "dismissed";
+
+export interface Application {
+  id: string;
+  job_id: string;
+  status: ApplicationStatus;
+  previous_status: ApplicationStatus | null;
+  applied_at: string | null;
+  resume_id: string | null;
+  cover_letter_id: string | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  events: { id: number; from_status: string | null; to_status: ApplicationStatus; note: string | null; at: string }[];
 }
 
 // ---------- 搜索（F3） ----------

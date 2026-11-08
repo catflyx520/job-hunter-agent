@@ -22,3 +22,6 @@ Thumbs.db
 
 # 前端编译快取
 *.tsbuildinfo
+
+# Evals 结果（本机产生）
+evals/results/

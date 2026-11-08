@@ -4,7 +4,7 @@
 
 [English](README.md) · 规格：[docs/SPEC.md](docs/SPEC.md)
 
-> 目前进度：**M3**：模型连接（含 CLI 一键登录）、履历评分、勾选网站自动搜索职位（LinkedIn、Built In、YC 等公开职位页 + Greenhouse / Lever / Ashby 公开 API）→ 去重、硬性排除、引用履历证据的匹配评分、H-1B / PERM 雇主历史；也可贴网址或 JD；cover letter 与申请问答（可附截图）。本 app 不会自动投递、不会自动填表、不会代你联系雇主。
+> 目前进度：**M4（本机）**：模型连接（含 CLI 一键登录）、履历评分、勾选网站自动搜索职位（LinkedIn、Built In、YC 等公开职位页 + Greenhouse / Lever / Ashby 公开 API）→ 去重、硬性排除、引用履历证据的匹配评分、H-1B / PERM 雇主历史；也可贴网址或 JD；cover letter 与申请问答（可附截图）；投递状态追踪与统计页。本 app 不会自动投递、不会自动填表、不会代你联系雇主。
 
 ## 需要安装
 
@@ -52,6 +52,12 @@ CLI provider 以子进程调用**你自己**的 `claude` / `codex`，使用你�
 - 只读公开页面，遇到登录、CAPTCHA 或验证页就停下并记录原因，不绕过。不登录则 LinkedIn / Indeed 常常读不到，这是预期的限制。
 - 每个职位要读取、抽取并评分，约 20–40 秒；被硬性排除的职位不评分。
 
+## 投递追踪与统计
+
+在职位上标记 收藏 → 已投递 → 面试中 → Offer / 被拒 / 无回音（也可以删除后还原）。每次变更都会留下历史；「已投递」的时间就是你标记的时间，app 不会编造或代你投递。
+
+「投递统计」页有总览数字、漏斗、回复率、来源网站、签证政策与签证历史分布、被排除原因、薪资与分数分布、每日 / 每周趋势和待处理事项；可以按公司、网站、批次、地点、状态、日期筛选，点任一长条就能看到对应的职位。
+
 ## H-1B / 绿卡历史资料
 
 雇主历史来自官方公开资料：美国劳工部 DOL 的 LCA、PERM 公开档，以及 USCIS H-1B Employer Data Hub。
@@ -74,6 +80,18 @@ uv run ruff check .
 ```
 
 LLM 相关测试一律用假 provider，不打真实 API。API 测试使用独立的 `jobhunter_test` 数据库，连不上 Postgres 时会跳过。
+
+### Evals
+
+`evals/datasets/cases.py` 有 5 个虚构求职者、40 份标注好的 JD 和 50 组公司名称（全部合成）。
+
+```bash
+cd backend
+uv run python ../evals/run_evals.py                                                   # 不呼叫模型（CI 也跑）
+uv run python ../evals/run_evals.py --suite llm --provider claude_cli --model sonnet  # 用你自己的模型
+```
+
+`llm` 组会量测职位抽取准确率、硬性排除的 precision / recall、建议等级准确率、cover letter 引用率，以及问答有没有正确列出「需要确认」。门槛在 `evals/thresholds.json`，低于门槛时以错误码结束。
 
 ## 授权
 

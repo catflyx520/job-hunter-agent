@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import ApplicationPanel from "./ApplicationControl";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, JobDetail as Job, SponsorStatus } from "../api";
 import {
@@ -91,7 +92,12 @@ export default function JobDetail() {
           <Field label="只收 New Grad" value={yesNo(job.new_grad_only)} />
           <Field label="要求公民 / 绿卡身份" value={yesNo(job.citizenship_required)} />
           <Field label="Easy Apply" value={yesNo(job.easy_apply)} />
-          <Field label="状态" value={job.status === "unverified" ? "未在官网核实是否仍在招聘" : job.status} />
+          <Field
+            label="职位状态"
+            value={
+              job.status === "unverified" ? "未在官网核实是否仍在招聘" : job.status === "expired" ? "已下架 / 过期" : "仍在招聘（已读取页面）"
+            }
+          />
         </div>
         <p>
           <span className={`badge ${sp.cls}`}>{sp.text}</span>
@@ -112,6 +118,8 @@ export default function JobDetail() {
         </div>
         <p className="muted">投递请自己到申请页面完成；本工具不会代你投递。</p>
       </div>
+
+      <ApplicationPanel jobId={job.id} />
 
       {(job.exclusion.reasons.length > 0 || job.exclusion.flags.length > 0) && (
         <div className="card">
