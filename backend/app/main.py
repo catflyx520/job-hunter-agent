@@ -5,6 +5,7 @@ from sqlalchemy import text
 
 from app.api import applications, jobs, materials, profile, providers, resumes, search, stats
 from app.core.db import get_engine
+from app.core.i18n import parse_lang, set_lang
 from app.search.runner import recover_interrupted
 
 
@@ -14,8 +15,22 @@ async def lifespan(app: FastAPI):
     yield
 
 
+class LangMiddleware:
+    """读 X-UI-Lang（前端每个请求都带），让这次请求产生的文字用同一种语言。"""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            header = dict(scope.get("headers") or []).get(b"x-ui-lang", b"").decode("latin-1")
+            set_lang(parse_lang(header))
+        await self.app(scope, receive, send)
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="job-hunter-agent", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(LangMiddleware)
     app.include_router(providers.router)
     app.include_router(resumes.router)
     app.include_router(profile.router)

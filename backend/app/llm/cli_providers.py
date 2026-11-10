@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.config import get_settings
+from app.core.i18n import tr
 from app.llm import auth_state
 from app.llm.base import Capabilities, LLMError, LLMProvider, flatten_prompt
 
@@ -62,7 +63,7 @@ def find_executable(name: str) -> str | None:
 def detect_cli(name: str) -> CliStatus:
     exe = find_executable(name)
     if not exe:
-        return CliStatus(name, False, error=f"找不到 `{name}`，请先安装并在终端登录。")
+        return CliStatus(name, False, error=tr("找不到 `{name}`，请先安装并在终端登录。", name=name))
     try:
         out = subprocess.run(
             [exe, "--version"],
@@ -74,7 +75,7 @@ def detect_cli(name: str) -> CliStatus:
         version = (out.stdout or out.stderr).strip().splitlines()[0] if (out.stdout or out.stderr) else None
         return CliStatus(name, True, version=version)
     except (OSError, subprocess.SubprocessError):
-        return CliStatus(name, False, error=f"`{name} --version` 执行失败。")
+        return CliStatus(name, False, error=tr("`{name} --version` 执行失败。", name=name))
 
 
 def run_cli(
@@ -96,9 +97,9 @@ def run_cli(
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except subprocess.TimeoutExpired as exc:
-            raise LLMError(f"{who} 生成逾时（{timeout} 秒），可重试。") from exc
+            raise LLMError(tr("{who} 生成逾时（{timeout} 秒），可重试。", who=who, timeout=timeout)) from exc
         except OSError as exc:
-            raise LLMError(f"无法启动 {who}，请确认已安装。") from exc
+            raise LLMError(tr("无法启动 {who}，请确认已安装。", who=who)) from exc
     out = proc.stdout.decode("utf-8", errors="replace")
     if proc.returncode:
         combined = proc.stderr.decode("utf-8", errors="replace") + out
@@ -106,10 +107,10 @@ def run_cli(
         if auth_state.is_auth_error(combined) or any(x in lower for x in ("unauthorized", "login", "authentication")):
             if cli:
                 auth_state.mark_invalid(cli)
-            raise LLMError(f"{who} 未登录或登录已失效，请到「模型设置 → 本机 CLI 登录」重新登录后重试。")
+            raise LLMError(tr("{who} 未登录或登录已失效，请到「模型设置 → 本机 CLI 登录」重新登录后重试。", who=who))
         if any(x in lower for x in ("usage limit", "rate limit", "429", "quota")):
-            raise LLMError(f"{who} 额度或速率限制，请稍后重试。")
-        raise LLMError(f"{who} 未能完成生成，请确认本机登录、网络与模型权限后重试。")
+            raise LLMError(tr("{who} 额度或速率限制，请稍后重试。", who=who))
+        raise LLMError(tr("{who} 未能完成生成，请确认本机登录、网络与模型权限后重试。", who=who))
     return out
 
 
@@ -140,10 +141,10 @@ class ClaudeCliProvider(LLMProvider):
 
     def _complete(self, messages, images, json_mode, search: bool = False):
         if images:
-            raise LLMError("Claude Code CLI 模式不支援图片。")
+            raise LLMError(tr("Claude Code CLI 模式不支援图片。"))
         exe = find_executable("claude")
         if not exe:
-            raise LLMError("找不到本机 `claude`，请先安装 Claude Code 并在终端登录。")
+            raise LLMError(tr("找不到本机 `claude`，请先安装 Claude Code 并在终端登录。"))
         with tempfile.TemporaryDirectory(prefix="jha-claude-", ignore_cleanup_errors=True) as workdir:
             out = run_cli(
                 self.build_args(exe, search),
@@ -170,17 +171,17 @@ def parse_claude_output(out: str) -> tuple[str, dict[str, Any]]:
     try:
         data = json.loads(out.strip().splitlines()[-1] if out.strip() else "")
     except (ValueError, IndexError) as exc:
-        raise LLMError("Claude Code CLI 输出格式无法解析，请重试。") from exc
+        raise LLMError(tr("Claude Code CLI 输出格式无法解析，请重试。")) from exc
     if data.get("is_error"):
         status = data.get("api_error_status")
         if status == 401:
-            raise LLMError("Claude Code CLI 登录已失效，请到「模型设置 → 本机 CLI 登录」重新登录后重试。")
+            raise LLMError(tr("Claude Code CLI 登录已失效，请到「模型设置 → 本机 CLI 登录」重新登录后重试。"))
         if status == 429:
-            raise LLMError("Claude Code CLI 额度或速率限制，请稍后重试。")
-        raise LLMError("Claude Code CLI 回报错误，请确认登录状态与额度。")
+            raise LLMError(tr("Claude Code CLI 额度或速率限制，请稍后重试。"))
+        raise LLMError(tr("Claude Code CLI 回报错误，请确认登录状态与额度。"))
     result = data.get("result")
     if not isinstance(result, str) or not result.strip():
-        raise LLMError("Claude Code CLI 没有返回内容，请重试。")
+        raise LLMError(tr("Claude Code CLI 没有返回内容，请重试。"))
     return result, data.get("usage") or {}
 
 
@@ -235,7 +236,7 @@ class CodexCliProvider(LLMProvider):
     def _complete(self, messages, images, json_mode, search: bool = False):
         exe = find_executable("codex")
         if not exe:
-            raise LLMError("找不到本机 `codex`，请先安装 Codex CLI 并在终端登录。")
+            raise LLMError(tr("找不到本机 `codex`，请先安装 Codex CLI 并在终端登录。"))
         with tempfile.TemporaryDirectory(prefix="jha-codex-", ignore_cleanup_errors=True) as workdir:
             paths = []
             for i, img in enumerate(images or []):
@@ -266,11 +267,11 @@ def parse_codex_output(out: str, allow_search: bool = False) -> tuple[str, dict[
         item = event.get("item", {}) or {}
         forbidden = ("command_execution", "mcp_tool_call", "file_change") + (() if allow_search else ("web_search",))
         if item.get("type") in forbidden:
-            raise LLMError("Codex 尝试使用文字生成以外的工具，结果未采用。")
+            raise LLMError(tr("Codex 尝试使用文字生成以外的工具，结果未采用。"))
         if event.get("type") == "item.completed" and item.get("type") == "agent_message":
             answers.append(item.get("text", ""))
         if event.get("type") == "turn.completed":
             usage = event.get("usage") or {}
     if not answers or not answers[-1].strip():
-        raise LLMError("Codex 没有返回内容，请重试。")
+        raise LLMError(tr("Codex 没有返回内容，请重试。"))
     return answers[-1], usage

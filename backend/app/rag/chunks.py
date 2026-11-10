@@ -8,6 +8,7 @@ from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.i18n import tr
 from app.llm.base import LLMError, LLMProvider
 from app.models import ExperienceChunk, Resume
 from app.schemas.resume import ParsedResume
@@ -60,8 +61,11 @@ def rebuild_chunks(db: Session, resume: Resume, provider: LLMProvider) -> int:
     dim = get_settings().embedding_dim
     if vectors and len(vectors[0]) != dim:
         raise LLMError(
-            f"embedding 模型输出 {len(vectors[0])} 维，但数据库设定为 {dim} 维（EMBEDDING_DIM）。"
-            "请换模型，或修改 EMBEDDING_DIM 后执行 reindex。"
+            tr(
+                "embedding 模型输出 {v} 维，但数据库设定为 {dim} 维（EMBEDDING_DIM）。请换模型，或修改 EMBEDDING_DIM 后执行 reindex。",
+                v=len(vectors[0]),
+                dim=dim,
+            )
         )
     db.execute(delete(ExperienceChunk).where(ExperienceChunk.resume_id == resume.id))
     for chunk, vec in zip(chunks, vectors, strict=True):

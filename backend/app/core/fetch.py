@@ -17,6 +17,8 @@ from urllib.parse import quote, urljoin, urlsplit
 
 import certifi
 
+from app.core.i18n import tr
+
 MAX_BYTES = 1024 * 1024
 MAX_JSON_BYTES = 12 * 1024 * 1024
 ATS_LINK = re.compile(r"^https?://(?:[\w-]+\.)*(?:greenhouse\.io|lever\.co|ashbyhq\.com)/", re.I)
@@ -118,22 +120,22 @@ def _parse_html(html: str) -> tuple[str, str, list[str]]:
 
 def public_target(url: str) -> tuple[object, int, str]:
     if not isinstance(url, str) or len(url) > 2500 or re.search(r"[\x00-\x20\\]", url):
-        raise FetchError("网址无效。")
+        raise FetchError(tr("网址无效。"))
     p = urlsplit(url)
     if p.scheme not in ("https", "http") or not p.hostname or p.username or p.password:
-        raise FetchError("请使用公开的 http / https 职位网址。")
+        raise FetchError(tr("请使用公开的 http / https 职位网址。"))
     try:
         port = p.port or (443 if p.scheme == "https" else 80)
     except ValueError as exc:
-        raise FetchError("网址的端口无效。") from exc
+        raise FetchError(tr("网址的端口无效。")) from exc
     if port not in (80, 443):
-        raise FetchError("只支援公开网站的标准端口（80 / 443）。")
+        raise FetchError(tr("只支援公开网站的标准端口（80 / 443）。"))
     try:
         addresses = socket.getaddrinfo(p.hostname, port, type=socket.SOCK_STREAM)
     except OSError as exc:
-        raise FetchError("找不到这个网站，请检查网址，或直接贴上 JD。") from exc
+        raise FetchError(tr("找不到这个网站，请检查网址，或直接贴上 JD。")) from exc
     if not addresses or any(not ipaddress.ip_address(a[4][0].split("%")[0]).is_global for a in addresses):
-        raise FetchError("不读取 localhost、内网或保留位址；请使用公开的职位网址。")
+        raise FetchError(tr("不读取 localhost、内网或保留位址；请使用公开的职位网址。"))
     return p, port, addresses[0][4][0]
 
 
@@ -163,26 +165,30 @@ def _get(url: str, accept: str, limit: int) -> tuple[str, str, bytes]:
             if resp.status in (301, 302, 303, 307, 308):
                 target = resp.getheader("Location")
                 if not target:
-                    raise FetchError("网站的重导向无效。")
+                    raise FetchError(tr("网站的重导向无效。"))
                 url = urljoin(url, target)
                 continue
             if resp.status in (401, 403, 429, 999):
                 raise FetchError(
-                    f"网站回应 {resp.status}（需要登录或拒绝自动读取）。请直接贴上 JD；本工具不绕过验证。", blocked=True
+                    tr(
+                        "网站回应 {status}（需要登录或拒绝自动读取）。请直接贴上 JD；本工具不绕过验证。",
+                        status=resp.status,
+                    ),
+                    blocked=True,
                 )
             if resp.status == 404 or resp.status == 410:
-                raise FetchError(f"网站回应 {resp.status}（职位可能已下架）。")
+                raise FetchError(tr("网站回应 {status}（职位可能已下架）。", status=resp.status))
             if resp.status != 200:
-                raise FetchError(f"网站回应 {resp.status}，请直接贴上 JD。")
+                raise FetchError(tr("网站回应 {status}，请直接贴上 JD。", status=resp.status))
             raw = resp.read(limit + 1)
             if len(raw) > limit:
-                raise FetchError("网页内容过大，请贴上 JD 的相关段落。")
+                raise FetchError(tr("网页内容过大，请贴上 JD 的相关段落。"))
             return url, resp.getheader("Content-Type", "") or "", raw
         except (OSError, http.client.HTTPException) as exc:
-            raise FetchError("网站暂时无法读取，请直接贴上 JD。") from exc
+            raise FetchError(tr("网站暂时无法读取，请直接贴上 JD。")) from exc
         finally:
             conn.close()
-    raise FetchError("网站重导向次数过多，请直接贴上 JD。")
+    raise FetchError(tr("网站重导向次数过多，请直接贴上 JD。"))
 
 
 def _decode(raw: bytes, ctype: str) -> str:
@@ -196,11 +202,13 @@ def _decode(raw: bytes, ctype: str) -> str:
 def fetch_page(url: str) -> FetchedPage:
     url, ctype, raw = _get(url, "text/html,text/plain,application/xhtml+xml", MAX_BYTES)
     if not any(t in ctype for t in ("text/html", "text/plain", "application/xhtml")):
-        raise FetchError("这个网址不是文字网页，请直接贴上 JD。")
+        raise FetchError(tr("这个网址不是文字网页，请直接贴上 JD。"))
     body = _decode(raw, ctype)
     text, title, links = _parse_html(body) if "html" in ctype else (body, "", [])
     if len(text) < 200 or BLOCK_PAGE.search(title) or (len(text) < SHORT_PAGE and BLOCK_PAGE.search(text[:400])):
-        raise FetchError("网页读不到完整的 JD（可能需要登录、验证或由 JavaScript 产生）。请直接贴上 JD。", blocked=True)
+        raise FetchError(
+            tr("网页读不到完整的 JD（可能需要登录、验证或由 JavaScript 产生）。请直接贴上 JD。"), blocked=True
+        )
     return FetchedPage(url=url, text=text[:40_000], title=title, retrieved_at=datetime.now(UTC), links=links)
 
 
@@ -210,4 +218,4 @@ def fetch_json(url: str) -> Any:
     try:
         return json.loads(_decode(raw, ctype))
     except ValueError as exc:
-        raise FetchError("回传的内容不是 JSON。") from exc
+        raise FetchError(tr("回传的内容不是 JSON。")) from exc

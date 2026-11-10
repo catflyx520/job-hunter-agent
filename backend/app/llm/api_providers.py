@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from app.core.i18n import tr
 from app.llm.base import Capabilities, ImageInput, LLMError, LLMProvider
 
 REQUEST_TIMEOUT = 120.0
@@ -19,14 +20,14 @@ def _b64(img: ImageInput) -> str:
 def _friendly(exc: Exception, who: str) -> LLMError:
     text = str(exc).lower()
     if any(s in text for s in ("401", "unauthorized", "invalid api key", "authentication", "incorrect api key")):
-        return LLMError(f"{who} 验证失败：请检查 API key。")
+        return LLMError(tr("{who} 验证失败：请检查 API key。", who=who))
     if any(s in text for s in ("429", "rate limit", "quota")):
-        return LLMError(f"{who} 额度或速率限制，请稍后重试。")
+        return LLMError(tr("{who} 额度或速率限制，请稍后重试。", who=who))
     if any(s in text for s in ("404", "not found", "does not exist")):
-        return LLMError(f"{who} 找不到指定的模型或端点。")
+        return LLMError(tr("{who} 找不到指定的模型或端点。", who=who))
     if any(s in text for s in ("connect", "timed out", "timeout", "name resolution")):
-        return LLMError(f"无法连线到 {who}，请检查网址与网络。")
-    return LLMError(f"{who} 呼叫失败：{type(exc).__name__}")
+        return LLMError(tr("无法连线到 {who}，请检查网址与网络。", who=who))
+    return LLMError(tr("{who} 呼叫失败：{__name__}", who=who, __name__=type(exc).__name__))
 
 
 class OpenAIProvider(LLMProvider):

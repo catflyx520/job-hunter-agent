@@ -6,6 +6,8 @@ import io
 import zipfile
 from dataclasses import dataclass, field
 
+from app.core.i18n import tr
+
 PDF_MIME = "application/pdf"
 DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 ALLOWED_MIMES = {PDF_MIME: ".pdf", DOCX_MIME: ".docx"}
@@ -44,7 +46,7 @@ def sniff_mime(data: bytes, filename: str) -> str:
                     return DOCX_MIME
         except zipfile.BadZipFile:
             pass
-    raise UnsupportedFile(f"只支援 PDF 或 DOCX（{filename} 的内容不是这两种格式）。")
+    raise UnsupportedFile(tr("只支援 PDF 或 DOCX（{filename} 的内容不是这两种格式）。", filename=filename))
 
 
 def extract(data: bytes, mime: str) -> Extracted:
@@ -52,7 +54,7 @@ def extract(data: bytes, mime: str) -> Extracted:
         return _extract_pdf(data)
     if mime == DOCX_MIME:
         return _extract_docx(data)
-    raise UnsupportedFile("只支援 PDF 或 DOCX。")
+    raise UnsupportedFile(tr("只支援 PDF 或 DOCX。"))
 
 
 def _extract_pdf(data: bytes) -> Extracted:
@@ -73,7 +75,7 @@ def _extract_pdf(data: bytes) -> Extracted:
                 if _looks_multi_column(words, float(page.width)):
                     layout.multi_column_pages.append(i)
     except Exception as exc:  # noqa: BLE001 - pdfminer 会丢各种例外
-        raise UnsupportedFile("PDF 无法读取，档案可能损坏或加密。") from exc
+        raise UnsupportedFile(tr("PDF 无法读取，档案可能损坏或加密。")) from exc
     return Extracted(text="\n".join(pages_text).strip(), layout=layout)
 
 
@@ -104,7 +106,7 @@ def _extract_docx(data: bytes) -> Extracted:
     try:
         document = docx.Document(io.BytesIO(data))
     except Exception as exc:  # noqa: BLE001
-        raise UnsupportedFile("DOCX 无法读取，档案可能损坏。") from exc
+        raise UnsupportedFile(tr("DOCX 无法读取，档案可能损坏。")) from exc
 
     lines = [p.text for p in document.paragraphs]
     layout.table_count = len(document.tables)

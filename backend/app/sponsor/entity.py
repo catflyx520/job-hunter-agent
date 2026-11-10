@@ -11,6 +11,7 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.core.fetch import FetchError, fetch_page
+from app.core.i18n import tr
 from app.jobs.extract import evidence_in_text
 from app.jobs.normalize import normalize_company
 from app.llm.base import LLMProvider, Message
@@ -45,7 +46,7 @@ def candidate_urls(website: str) -> list[str]:
 
 def suggest_entity(db: Session, company: Company, provider: LLMProvider) -> dict:
     if not company.website:
-        raise EntityError("请先填写公司官网网址，才能从隐私政策推测法律实体。")
+        raise EntityError(tr("请先填写公司官网网址，才能从隐私政策推测法律实体。"))
     tried = []
     for url in candidate_urls(company.website):
         try:
@@ -63,7 +64,7 @@ def suggest_entity(db: Session, company: Company, provider: LLMProvider) -> dict
         guess = result.parsed
         assert isinstance(guess, EntityGuess)
         if not guess.found or not guess.legal_name or not evidence_in_text(guess.quote, page.text):
-            tried.append(f"{url}：页面没有写明法律实体")
+            tried.append(tr("{url}：页面没有写明法律实体", url=url))
             continue
         norm = normalize_company(guess.legal_name)
         rows = db.execute(
@@ -88,10 +89,10 @@ def suggest_entity(db: Session, company: Company, provider: LLMProvider) -> dict
                 confidence=Decimal(str(round(min(0.95, 0.9 * sim + 0.05), 2))),
                 status="suggested",
                 evidence_url=page.url,
-                note=f"官网原句：{guess.quote[:300]}",
+                note=tr("官网原句：{v}", v=guess.quote[:300]),
             )
             db.add(alias)
             created.append(emp.name_variants[0] if emp and emp.name_variants else norm)
         db.flush()
         return {"legal_name": guess.legal_name, "quote": guess.quote, "source_url": page.url, "suggested": created}
-    raise EntityError("找不到写明法律实体的官网页面。" + ("；".join(tried[:3]) if tried else ""))
+    raise EntityError(tr("找不到写明法律实体的官网页面。") + ("；".join(tried[:3]) if tried else ""))

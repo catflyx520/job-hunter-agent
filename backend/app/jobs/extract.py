@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.core.i18n import tr
 from app.llm.base import LLMProvider, Message
 
 MAX_JD_CHARS = 30_000
@@ -78,13 +79,13 @@ def verify_evidence(ex: JobExtraction, jd_text: str) -> list[str]:
     """排除相关的判断必须有原句；找不到原句就退回不明，回传被修正的项目说明。"""
     notes = []
     if ex.sponsorship_policy != "unclear" and not evidence_in_text(ex.sponsorship_evidence, jd_text):
-        notes.append("sponsorship 政策找不到 JD 原句，已改为「不明」。")
+        notes.append(tr("sponsorship 政策找不到 JD 原句，已改为「不明」。"))
         ex.sponsorship_policy, ex.sponsorship_evidence = "unclear", ""
     if ex.new_grad_only and not evidence_in_text(ex.new_grad_evidence, jd_text):
-        notes.append("New Grad 限制找不到 JD 原句，已改为「未限制」。")
+        notes.append(tr("New Grad 限制找不到 JD 原句，已改为「未限制」。"))
         ex.new_grad_only, ex.new_grad_evidence = False, ""
     if ex.citizenship_required and not evidence_in_text(ex.citizenship_evidence, jd_text):
-        notes.append("公民身份要求找不到 JD 原句，已改为「未要求」。")
+        notes.append(tr("公民身份要求找不到 JD 原句，已改为「未要求」。"))
         ex.citizenship_required, ex.citizenship_evidence = False, ""
     return notes
 

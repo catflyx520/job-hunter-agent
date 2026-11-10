@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.fetch import fetch_page
+from app.core.i18n import tr
 from app.graphs.materials import build_graph
 from app.llm.base import ImageInput, LLMError, NotSupported
 from app.llm.registry import provider_for_task
@@ -38,7 +39,7 @@ def resolve_jd(db: Session, req: MaterialRequest) -> tuple[str, str | None, Job 
     """JD 优先顺序（SPEC F4）：已存的完整 JD → 读取公开网址 → 贴上的 JD。读不到就请用户贴，不拿摘要充当完整 JD。"""
     job = db.get(Job, req.job_id) if req.job_id else None
     if req.job_id and job is None:
-        raise MaterialError("找不到这个职位。")
+        raise MaterialError(tr("找不到这个职位。"))
     if job and job.jd_text:
         return "stored", None, job
     if req.jd_text and req.jd_text.strip():
@@ -50,17 +51,17 @@ def resolve_jd(db: Session, req: MaterialRequest) -> tuple[str, str | None, Job 
 
 def create_material(db: Session, req: MaterialRequest) -> Material:
     if req.kind == "qa" and not (req.question or "").strip() and not req.images:
-        raise MaterialError("请输入问题，或附上问题截图。")
+        raise MaterialError(tr("请输入问题，或附上问题截图。"))
     resume = db.scalar(select(Resume).where(Resume.is_active.is_(True)))
     if resume is None:
-        raise MaterialError("请先上传并设定一份使用中的履历。")
+        raise MaterialError(tr("请先上传并设定一份使用中的履历。"))
     jd_source, jd_text, job = resolve_jd(db, req)
     if req.kind == "cover_letter" and jd_source == "none":
-        raise MaterialError("Cover letter 需要 JD：请选一个已存的职位、贴网址或贴上 JD。")
+        raise MaterialError(tr("Cover letter 需要 JD：请选一个已存的职位、贴网址或贴上 JD。"))
 
     provider = provider_for_task(db, "cover_letter" if req.kind == "cover_letter" else "qa")
     if req.images and not provider.capabilities().vision:
-        raise NotSupported("目前指定的模型不支援图片。请改贴问题文字，或在设置页为「申请问答」指定支援图片的模型。")
+        raise NotSupported(tr("目前指定的模型不支援图片。请改贴问题文字，或在设置页为「申请问答」指定支援图片的模型。"))
 
     full_jd = job.jd_text if jd_source == "stored" and job else jd_text
     m = Material(

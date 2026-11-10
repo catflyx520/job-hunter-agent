@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
+import { t } from "../i18n";
 
 /** 读取 / 处理中的旋转图示。放在文字旁边；屏幕阅读器读旁边的文字，图示本身隐藏。 */
 export function Spinner({ size = 14 }: { size?: number }) {
@@ -6,7 +7,7 @@ export function Spinner({ size = 14 }: { size?: number }) {
 }
 
 /** 整块读取中：图示 + 文字。 */
-export function Loading({ text = "读取中…", className = "" }: { text?: string; className?: string }) {
+export function Loading({ text = t("读取中…"), className = "" }: { text?: string; className?: string }) {
   return (
     <div className={`muted loading-line ${className}`} role="status">
       <Spinner size={16} />
@@ -68,7 +69,7 @@ export function usePopover<T extends string>() {
 export function ConfirmButton({
   children,
   message,
-  confirmLabel = "确定删除",
+  confirmLabel = t("确定删除"),
   onConfirm,
   className = "",
   disabled,
@@ -102,7 +103,7 @@ export function ConfirmButton({
         {confirmLabel}
       </button>
       <button type="button" onClick={() => setAsking(false)}>
-        取消
+        {t("取消")}
       </button>
     </span>
   );

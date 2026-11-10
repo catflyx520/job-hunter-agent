@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.fetch import FetchError
+from app.core.i18n import tr
 from app.llm.base import LLMError
 from app.materials.images import MAX_IMAGE_BYTES, MAX_IMAGES, ImageError, validate_images
 from app.materials.service import MaterialError, MaterialRequest, create_material, similar_answers
@@ -72,7 +73,7 @@ def _out(db: Session, m: Material) -> MaterialOut:
 def _get(db: Session, material_id: uuid.UUID) -> Material:
     m = db.get(Material, material_id)
     if m is None:
-        raise HTTPException(404, "找不到这份草稿")
+        raise HTTPException(404, tr("找不到这份草稿"))
     return m
 
 
@@ -89,7 +90,7 @@ def create(
     db: Session = Depends(get_db),
 ):
     if len(images) > MAX_IMAGES:
-        raise HTTPException(422, f"最多附 {MAX_IMAGES} 张图片。")
+        raise HTTPException(422, tr("最多附 {MAX_IMAGES} 张图片。", MAX_IMAGES=MAX_IMAGES))
     try:
         blobs = [f.file.read(MAX_IMAGE_BYTES + 1) for f in images]
         valid = validate_images(blobs) if blobs else []
@@ -160,9 +161,9 @@ def image(material_id: uuid.UUID, position: int, db: Session = Depends(get_db)):
         select(MaterialImage).where(MaterialImage.material_id == material_id, MaterialImage.position == position)
     )
     if img is None:
-        raise HTTPException(404, "找不到这张图片")
+        raise HTTPException(404, tr("找不到这张图片"))
     root = (get_settings().data_dir / "images").resolve()
     path = (get_settings().data_dir / img.file_path).resolve()
     if root not in path.parents or not path.is_file():
-        raise HTTPException(404, "找不到这张图片")
+        raise HTTPException(404, tr("找不到这张图片"))
     return FileResponse(path, media_type=img.mime)

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.fetch import FetchError
+from app.core.i18n import tr
 from app.jobs.exclusion import FLAG_LABELS, REASON_LABELS, check_exclusions
 from app.jobs.service import IngestError, ingest, load_preferences, match_job
 from app.llm.base import LLMError
@@ -98,7 +99,7 @@ def _detail(db: Session, job: Job) -> JobDetail:
 def _get_job(db: Session, job_id: uuid.UUID) -> Job:
     job = db.get(Job, job_id)
     if job is None:
-        raise HTTPException(404, "找不到这个职位")
+        raise HTTPException(404, tr("找不到这个职位"))
     return job
 
 
@@ -132,7 +133,7 @@ def match(job_id: uuid.UUID, db: Session = Depends(get_db)):
     except IngestError as exc:
         raise HTTPException(409, str(exc)) from exc
     except LLMError as exc:
-        raise HTTPException(502, f"匹配评分失败：{exc}") from exc
+        raise HTTPException(502, tr("匹配评分失败：{exc}", exc=exc)) from exc
     return _detail(db, job)
 
 
@@ -147,7 +148,7 @@ def delete_job(job_id: uuid.UUID, db: Session = Depends(get_db)):
 def _get_company(db: Session, company_id: uuid.UUID) -> Company:
     c = db.get(Company, company_id)
     if c is None:
-        raise HTTPException(404, "找不到这家公司")
+        raise HTTPException(404, tr("找不到这家公司"))
     return c
 
 
@@ -180,7 +181,7 @@ def suggest_legal_entity(company_id: uuid.UUID, db: Session = Depends(get_db)):
     except EntityError as exc:
         raise HTTPException(422, str(exc)) from exc
     except LLMError as exc:
-        raise HTTPException(502, f"推测法律实体失败：{exc}") from exc
+        raise HTTPException(502, tr("推测法律实体失败：{exc}", exc=exc)) from exc
     status = compute_status(db, c)
     return {**result, "sponsor": SponsorStatusOut.model_validate(status, from_attributes=True)}
 
@@ -189,9 +190,9 @@ def suggest_legal_entity(company_id: uuid.UUID, db: Session = Depends(get_db)):
 def decide_alias(alias_id: uuid.UUID, body: AliasDecision, db: Session = Depends(get_db)):
     alias = db.get(EmployerAlias, alias_id)
     if alias is None:
-        raise HTTPException(404, "找不到这个比对建议")
+        raise HTTPException(404, tr("找不到这个比对建议"))
     alias.status = body.status
     if body.status == "confirmed" and alias.method != "exact":
-        alias.note = (alias.note or "") + "（已由你确认）"
+        alias.note = (alias.note or "") + tr("（已由你确认）")
     db.flush()
     return SponsorStatusOut.model_validate(compute_status(db, _get_company(db, alias.company_id)), from_attributes=True)

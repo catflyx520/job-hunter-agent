@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.core.i18n import tr
 from app.models import Fact, Preferences
 from app.schemas.profile import (
     FACT_TEMPLATES,
@@ -52,7 +53,7 @@ def put_preferences(body: JobPreferences, db: Session = Depends(get_db)):
 def _get_fact(db: Session, fact_id: uuid.UUID) -> Fact:
     fact = db.get(Fact, fact_id)
     if fact is None:
-        raise HTTPException(404, "找不到这条事实")
+        raise HTTPException(404, tr("找不到这条事实"))
     return fact
 
 
@@ -71,9 +72,9 @@ def list_facts(db: Session = Depends(get_db)):
 @router.post("/facts", response_model=FactOut, status_code=201)
 def create_fact(body: FactIn, db: Session = Depends(get_db)):
     if db.scalar(select(Fact).where(Fact.key == body.key)) is not None:
-        raise HTTPException(409, f"key「{body.key}」已存在")
+        raise HTTPException(409, tr("key「{key}」已存在", key=body.key))
     if body.confirm and not body.value.strip():
-        raise HTTPException(422, "空白的答案不能标记为已确认")
+        raise HTTPException(422, tr("空白的答案不能标记为已确认"))
     fact = Fact(
         key=body.key,
         question=body.question,
@@ -98,7 +99,7 @@ def update_fact(fact_id: uuid.UUID, body: FactUpdate, db: Session = Depends(get_
             setattr(fact, field, data[field])
     if body.confirm is True:
         if not fact.value.strip():
-            raise HTTPException(422, "空白的答案不能标记为已确认")
+            raise HTTPException(422, tr("空白的答案不能标记为已确认"))
         fact.confirmed_at = datetime.now(UTC)
         fact.source = "user_confirmed" if fact.source == "resume_derived" else fact.source
     elif body.confirm is False or (changed_value and body.confirm is None):

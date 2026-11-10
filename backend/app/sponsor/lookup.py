@@ -15,6 +15,7 @@ from decimal import Decimal
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from app.core.i18n import tr
 from app.models import Company, CompanySponsorStatus, EmployerAlias, SponsorDataset, SponsorEmployer, SponsorStat
 
 FUZZY_THRESHOLD = 0.55
@@ -60,7 +61,7 @@ def suggest_aliases(db: Session, company: Company) -> list[EmployerAlias]:
             method="exact",
             confidence=Decimal("1.00"),
             status="confirmed",
-            note="正规化后名称完全相同",
+            note=tr("正规化后名称完全相同"),
         )
         db.add(a)
         created.append(a)
@@ -82,7 +83,7 @@ def suggest_aliases(db: Session, company: Company) -> list[EmployerAlias]:
                 method="fuzzy",
                 confidence=Decimal(str(round(min(sim, 0.99), 2))),
                 status="suggested",
-                note="名称相似，需确认是否为同一个法律实体",
+                note=tr("名称相似，需确认是否为同一个法律实体"),
             )
             db.add(a)
             created.append(a)
@@ -119,10 +120,10 @@ def compute_status(db: Session, company: Company) -> CompanySponsorStatus:
     summary: dict = {"notes": NOTES, "company": company.display_name, "programs": {}, "entities": [], "pending": []}
 
     if cov["dataset_count"] == 0:
-        status, summary["reason"] = "not_checked", "尚未导入官方签证资料（执行 scripts/sponsor_data/build.py）。"
+        status, summary["reason"] = "not_checked", tr("尚未导入官方签证资料（执行 scripts/sponsor_data/build.py）。")
     elif company.is_staffing_agency:
         status = "employer_unknown"
-        summary["reason"] = "职位由猎头 / 人力公司刊登，实际雇主不明；猎头公司的记录不能算成客户的记录。"
+        summary["reason"] = tr("职位由猎头 / 人力公司刊登，实际雇主不明；猎头公司的记录不能算成客户的记录。")
     elif confirmed:
         ids = [a.sponsor_employer_id for a in confirmed]
         summary["programs"] = _stats_summary(db, ids)
@@ -142,15 +143,15 @@ def compute_status(db: Session, company: Company) -> CompanySponsorStatus:
         )
         status = "records_found" if has_records else "no_match_in_scope"
         if not has_records:
-            summary["reason"] = "已确认实体，但在已导入的资料年份里没有记录。"
+            summary["reason"] = tr("已确认实体，但在已导入的资料年份里没有记录。")
     elif pending:
         status = "employer_unknown"
-        summary["reason"] = "有名称相似的雇主，需要你确认是否为同一个法律实体。"
+        summary["reason"] = tr("有名称相似的雇主，需要你确认是否为同一个法律实体。")
     else:
         status = "no_match_in_scope"
-        summary["reason"] = (
-            f"以公司名称「{company.display_name}」在已导入资料中查无记录。品牌名可能与法律实体不同，"
-            "可以让 AI 从公司官网推测法律实体后再比对。"
+        summary["reason"] = tr(
+            "以公司名称「{display_name}」在已导入资料中查无记录。品牌名可能与法律实体不同，可以让 AI 从公司官网推测法律实体后再比对。",
+            display_name=company.display_name,
         )
         summary["match_basis"] = "company_name"
     summary["pending"] = [

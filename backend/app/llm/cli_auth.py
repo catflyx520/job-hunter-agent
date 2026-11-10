@@ -20,6 +20,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Literal
 
+from app.core.i18n import tr
 from app.llm import auth_state
 from app.llm.cli_providers import _STRIP_ENV, detect_cli, find_executable
 
@@ -107,17 +108,17 @@ def auth_info(name: CliName) -> CliAuthInfo:
 def logout(name: CliName) -> tuple[bool, str]:
     exe = find_executable(name)
     if not exe:
-        return False, f"找不到 `{name}`。"
+        return False, tr("找不到 `{name}`。", name=name)
     try:
         out = subprocess.run(
             [exe, *LOGOUT_ARGS[name]], capture_output=True, text=True, timeout=30, env=_env(), creationflags=_flags()
         )
     except (OSError, subprocess.SubprocessError):
-        return False, "登出指令执行失败。"
+        return False, tr("登出指令执行失败。")
     if out.returncode == 0:
         auth_state.clear(name)
-        return True, "已登出。"
-    return False, "登出指令回报失败。"
+        return True, tr("已登出。")
+    return False, tr("登出指令回报失败。")
 
 
 # ---------- 页面登录 ----------
@@ -154,7 +155,9 @@ class LoginManager:
     def start(self, name: CliName) -> LoginSnapshot:
         exe = find_executable(name)
         if not exe:
-            raise RuntimeError(f"找不到本机 `{name}`，请先安装。后端必须直接在本机执行，不能在 docker 容器里。")
+            raise RuntimeError(
+                tr("找不到本机 `{name}`，请先安装。后端必须直接在本机执行，不能在 docker 容器里。", name=name)
+            )
         with self._lock:
             self._stop_locked()
             proc = self._popen(
@@ -205,12 +208,14 @@ class LoginManager:
             running = login.exit_code is None
             if running:
                 message = (
-                    "请打开授权网址完成登录；如果页面显示验证码，把它贴到下方。" if login.url else "正在启动登录程序…"
+                    tr("请打开授权网址完成登录；如果页面显示验证码，把它贴到下方。")
+                    if login.url
+                    else tr("正在启动登录程序…")
                 )
             elif login.exit_code == 0:
-                message = "登录成功。"
+                message = tr("登录成功。")
             else:
-                message = f"登录程序已结束（代码 {login.exit_code}），没有完成登录。"
+                message = tr("登录程序已结束（代码 {exit_code}），没有完成登录。", exit_code=login.exit_code)
             return LoginSnapshot(
                 cli=login.cli,
                 running=running,

@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.core.i18n import tr
 from app.core.security import SecretKeyMissing, encrypt_secret, last4
 from app.llm import cli_auth, registry
 from app.llm.base import DEFAULT_CAPABILITIES, LLMError, Message
@@ -52,7 +53,7 @@ def _out(row: ProviderRow) -> ProviderOut:
 def _get(db: Session, provider_id: uuid.UUID) -> ProviderRow:
     row = db.get(ProviderRow, provider_id)
     if row is None:
-        raise HTTPException(404, "找不到这个模型连接")
+        raise HTTPException(404, tr("找不到这个模型连接"))
     return row
 
 
@@ -77,9 +78,9 @@ def list_providers(db: Session = Depends(get_db)):
 @router.post("/providers", response_model=ProviderOut, status_code=201)
 def create_provider(body: ProviderIn, db: Session = Depends(get_db)):
     if body.kind in NEEDS_KEY and not body.api_key:
-        raise HTTPException(422, "这个类型需要 API key")
+        raise HTTPException(422, tr("这个类型需要 API key"))
     if body.kind in NEEDS_URL and not body.base_url:
-        raise HTTPException(422, "OpenAI 兼容端点需要填写 base_url")
+        raise HTTPException(422, tr("OpenAI 兼容端点需要填写 base_url"))
     row = ProviderRow(
         kind=body.kind,
         name=body.name,
@@ -115,12 +116,12 @@ def delete_provider(provider_id: uuid.UUID, db: Session = Depends(get_db)):
     row = _get(db, provider_id)
     used = db.scalars(select(TaskRoute.task).where(TaskRoute.provider_id == provider_id)).all()
     if used:
-        raise HTTPException(409, f"这个连接仍被任务路由使用（{', '.join(used)}），请先修改路由。")
+        raise HTTPException(409, tr("这个连接仍被任务路由使用（{v}），请先修改路由。", v=", ".join(used)))
     db.delete(row)
     try:
         db.flush()
     except IntegrityError as exc:
-        raise HTTPException(409, "这个连接仍被使用，无法删除。") from exc
+        raise HTTPException(409, tr("这个连接仍被使用，无法删除。")) from exc
 
 
 @router.post("/providers/{provider_id}/test", response_model=TestResult)
@@ -133,7 +134,7 @@ def test_provider(provider_id: uuid.UUID, db: Session = Depends(get_db)):
             [Message("user", "Reply with the single word: ok")],
         )
         row.last_check_error = None
-        return TestResult(ok=True, message="连线成功", sample=result.text.strip()[:200])
+        return TestResult(ok=True, message=tr("连线成功"), sample=result.text.strip()[:200])
     except (LLMError, SecretKeyMissing) as exc:
         row.last_check_error = str(exc)
         return TestResult(ok=False, message=str(exc))
@@ -150,7 +151,7 @@ def list_models(provider_id: uuid.UUID, db: Session = Depends(get_db)):
 
 def _check_cli(name: str) -> cli_auth.CliName:
     if name not in ("claude", "codex"):
-        raise HTTPException(404, "未知的 CLI")
+        raise HTTPException(404, tr("未知的 CLI"))
     return name  # type: ignore[return-value]
 
 
@@ -220,10 +221,10 @@ def list_routes(db: Session = Depends(get_db)):
 @router.put("/task-routes/{task}", response_model=TaskRouteOut)
 def set_route(task: str, body: TaskRouteIn, db: Session = Depends(get_db)):
     if task not in TASKS:
-        raise HTTPException(404, "未知的任务")
+        raise HTTPException(404, tr("未知的任务"))
     provider = _get(db, body.provider_id)
     if task == "embedding" and not registry.supports_embedding(provider.kind):
-        raise HTTPException(422, "这个连接不支援 embedding，请选 OpenAI、OpenAI 兼容端点或 Ollama。")
+        raise HTTPException(422, tr("这个连接不支援 embedding，请选 OpenAI、OpenAI 兼容端点或 Ollama。"))
     route = db.get(TaskRoute, task) or TaskRoute(task=task)
     route.provider_id, route.model, route.params = body.provider_id, body.model, body.params
     db.add(route)

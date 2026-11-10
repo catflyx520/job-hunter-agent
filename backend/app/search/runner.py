@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import string
 import threading
 from collections.abc import Callable
@@ -11,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_sessionmaker
+from app.core.i18n import tr
 from app.jobs.service import load_preferences
 from app.models import JobSite, Resume, SearchRun
 from app.search import progress
@@ -30,22 +32,22 @@ def new_run_id(db: Session, today: str | None = None) -> str:
     for suffix in candidates:
         if f"{today}-{suffix}" not in used:
             return f"{today}-{suffix}"
-    raise RunError("今天的搜索批次太多了。")
+    raise RunError(tr("今天的搜索批次太多了。"))
 
 
 def create_run(db: Session, site_ids: list[str] | None = None, sponsor_history: bool = True) -> SearchRun:
     if progress.active():
-        raise RunError("已经有一个搜索正在进行，请等它完成或取消。")
+        raise RunError(tr("已经有一个搜索正在进行，请等它完成或取消。"))
     resume = db.scalar(select(Resume).where(Resume.is_active.is_(True)))
     if resume is None:
-        raise RunError("请先上传并设定一份使用中的履历。")
+        raise RunError(tr("请先上传并设定一份使用中的履历。"))
     prefs, version = load_preferences(db)
     if not prefs.active_roles:
-        raise RunError("请先在「求职需求」填写目标职位，或至少启用一个。")
+        raise RunError(tr("请先在「求职需求」填写目标职位，或至少启用一个。"))
     q = select(JobSite).where(JobSite.access_method != "paste_only").order_by(JobSite.sort_order)
     sites = db.scalars(q.where(JobSite.id.in_(site_ids)) if site_ids is not None else q.where(JobSite.enabled)).all()
     if not sites:
-        raise RunError("请至少勾选一个要搜索的网站。")
+        raise RunError(tr("请至少勾选一个要搜索的网站。"))
     _, source_label = get_searcher(db)
     run = SearchRun(
         id=new_run_id(db),
@@ -89,13 +91,15 @@ def execute_run(run_id: str) -> None:
         with maker() as db:
             run = db.get(SearchRun, run_id)
             run.status, run.finished_at = "failed", datetime.now(UTC)
-            run.error = f"搜索中断（{type(exc).__name__}）：{str(exc)[:300]}"
+            run.error = tr("搜索中断（{__name__}）：{v}", __name__=type(exc).__name__, v=str(exc)[:300])
             db.commit()
         progress.finish(run_id)
 
 
 def spawn(target: Callable[[str], None], run_id: str) -> None:
-    threading.Thread(target=target, args=(run_id,), name=f"search-{run_id}", daemon=True).start()
+    # copy_context：背景执行沿用发起请求时的介面语言
+    ctx = contextvars.copy_context()
+    threading.Thread(target=ctx.run, args=(target, run_id), name=f"search-{run_id}", daemon=True).start()
 
 
 def recover_interrupted() -> None:
@@ -104,7 +108,7 @@ def recover_interrupted() -> None:
         with get_sessionmaker()() as db:
             for run in db.scalars(select(SearchRun).where(SearchRun.status.in_(("pending", "running")))):
                 run.status, run.finished_at = "failed", datetime.now(UTC)
-                run.error = "服务重启，搜索中断。请重新搜索。"
+                run.error = tr("服务重启，搜索中断。请重新搜索。")
             db.commit()
     except Exception:  # noqa: BLE001  数据库还没启动时不影响服务启动
         pass

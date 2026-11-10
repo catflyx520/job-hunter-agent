@@ -2,20 +2,21 @@ import { useEffect, useState } from "react";
 import { api, Capabilities, CliStatus, Provider, ProviderKind, SearchSource, TaskRoute } from "../api";
 import { CLI_LABEL, CLI_STATE, CliLoginState, LoginSteps, useCliLogin } from "./CliLogin";
 import { ConfirmButton, Seg, Spinner } from "./ui";
+import { t } from "../i18n";
 
 const KINDS: { kind: ProviderKind; label: string; needsKey: boolean; needsUrl: boolean; model: string }[] = [
   { kind: "openai", label: "OpenAI API key", needsKey: true, needsUrl: false, model: "gpt-4o-mini" },
   { kind: "anthropic", label: "Anthropic API key", needsKey: true, needsUrl: false, model: "claude-haiku-5-5" },
-  { kind: "openai_compatible", label: "OpenAI 兼容端点", needsKey: true, needsUrl: true, model: "" },
-  { kind: "ollama", label: "Ollama（本地）", needsKey: false, needsUrl: true, model: "llama3.1" },
-  { kind: "claude_cli", label: "本机 Claude Code CLI", needsKey: false, needsUrl: false, model: "default" },
-  { kind: "codex_cli", label: "本机 Codex CLI", needsKey: false, needsUrl: false, model: "default" },
+  { kind: "openai_compatible", label: t("OpenAI 兼容端点"), needsKey: true, needsUrl: true, model: "" },
+  { kind: "ollama", label: t("Ollama（本地）"), needsKey: false, needsUrl: true, model: "llama3.1" },
+  { kind: "claude_cli", label: t("本机 Claude Code CLI"), needsKey: false, needsUrl: false, model: "default" },
+  { kind: "codex_cli", label: t("本机 Codex CLI"), needsKey: false, needsUrl: false, model: "default" },
 ];
 const CAP_LABELS: Record<keyof Capabilities, string> = {
-  structured_output: "结构化输出",
-  vision: "图片",
-  web_search: "网络搜索",
-  tool_calling: "工具调用",
+  structured_output: t("结构化输出"),
+  vision: t("图片"),
+  web_search: t("网络搜索"),
+  tool_calling: t("工具调用"),
 };
 
 const cliOf = (kind: ProviderKind): "claude" | "codex" | null => (kind === "claude_cli" ? "claude" : kind === "codex_cli" ? "codex" : null);
@@ -57,20 +58,20 @@ export default function Settings() {
 
   return (
     <div className="stack">
-      <section className="row between" aria-label="页面内容">
+      <section className="row between" aria-label={t("页面内容")}>
         <Seg
-          label="模型连接"
+          label={t("模型连接")}
           value={view}
           onChange={setView}
           options={[
-            { value: "conn", label: "连接" },
-            { value: "routes", label: "任务模型" },
-            { value: "search", label: "搜索来源" },
+            { value: "conn", label: t("连接") },
+            { value: "routes", label: t("任务模型") },
+            { value: "search", label: t("搜索来源") },
           ]}
         />
         {view === "conn" && (
           <button type="button" className="primary" aria-expanded={adding} onClick={() => setAdding(!adding)}>
-            {adding ? "收起" : "+ 新增连接"}
+            {adding ? t("收起") : t("+ 新增连接")}
           </button>
         )}
       </section>
@@ -87,8 +88,8 @@ export default function Settings() {
               }}
             />
           )}
-          <section className="card flush" aria-label="已设定的连接">
-            {providers.length === 0 && unlinkedClis.length === 0 && <p className="muted" style={{ padding: "12px 24px" }}>还没有任何连接。</p>}
+          <section className="card flush" aria-label={t("已设定的连接")}>
+            {providers.length === 0 && unlinkedClis.length === 0 && <p className="muted" style={{ padding: "12px 24px" }}>{t("还没有任何连接。")}</p>}
             {providers.map((p) => (
               <ProviderRow key={p.id} p={p} cli={cli} onChanged={load} onCliTested={() => setCliRefresh((n) => n + 1)} onError={setError} />
             ))}
@@ -97,7 +98,7 @@ export default function Settings() {
                 <div className="conn-main">
                   <div className="conn-info">
                     <b>{CLI_LABEL[c.name]}</b>
-                    <div className="muted">{c.version ?? "本机 CLI"} · 还没有添加为连接</div>
+                    <div className="muted">{c.version ?? t("本机 CLI")} · {t("还没有添加为连接")}</div>
                   </div>
                   <CliActions c={c} state={cli} />
                 </div>
@@ -111,19 +112,19 @@ export default function Settings() {
               </div>
             )}
             <div className="muted small" style={{ padding: "10px 24px" }}>
-              API key 只加密保存在本机，保存后只显示末四码。{cli.info?.notice}
+              {t("API key 只加密保存在本机，保存后只显示末四码。")}{t(cli.info?.notice ?? "")}
             </div>
           </section>
         </>
       )}
 
       {view === "routes" && (
-        <section className="card" aria-label="任务模型" style={{ paddingTop: 4 }}>
+        <section className="card" aria-label={t("任务模型")} style={{ paddingTop: 4 }}>
           {routes.map((r) => (
             <RouteRow key={r.task} route={r} providers={providers} onSave={setRoute} />
           ))}
           <p className="muted small" style={{ marginBottom: 0 }}>
-            未指定时用第一个启用的连接及其预设模型。Embedding 必须指定 OpenAI、OpenAI 兼容端点或 Ollama。
+            {t("未指定时用第一个启用的连接及其预设模型。Embedding 必须指定 OpenAI、OpenAI 兼容端点或 Ollama。")}
           </p>
         </section>
       )}
@@ -137,12 +138,12 @@ function CliActions({ c, state }: { c: CliStatus; state: CliLoginState }) {
   const st = CLI_STATE[c.state];
   return (
     <>
-      <div className={`conn-status ${st.cls}`} title={c.state === "not_installed" ? `${c.error ?? ""} 后端必须直接在本机执行，才找得到你的 CLI。` : c.email ?? undefined}>
+      <div className={`conn-status ${st.cls}`} title={c.state === "not_installed" ? `${c.error ?? ""} ${t("后端必须直接在本机执行，才找得到你的 CLI。")}` : c.email ?? undefined}>
         {st.text}
       </div>
       {c.available && (
         <button type="button" className="btn accent" disabled={state.busy || !!state.login?.running} onClick={() => state.start(c.name)}>
-          {c.state === "signed_in" ? "重新登录" : "登录"}
+          {c.state === "signed_in" ? t("重新登录") : t("登录")}
         </button>
       )}
     </>
@@ -200,29 +201,29 @@ function ProviderRow({
     }
   };
 
-  const meta = [KINDS.find((k) => k.kind === p.kind)?.label, p.base_url, p.has_api_key ? `key ••••${p.api_key_last4}` : null, `模型 ${p.default_model}`].filter(Boolean).join(" · ");
+  const meta = [KINDS.find((k) => k.kind === p.kind)?.label, p.base_url, p.has_api_key ? `key ••••${p.api_key_last4}` : null, t("模型 {m}", { m: p.default_model })].filter(Boolean).join(" · ");
   const status = result
-    ? { cls: result.ok ? "pass" : "fail", text: result.ok ? "连接正常" : `测试失败：${result.text}` }
+    ? { cls: result.ok ? "pass" : "fail", text: result.ok ? t("连接正常") : t("测试失败：{text}", { text: result.text }) }
     : p.last_check_error
-      ? { cls: "fail", text: `上次测试失败：${p.last_check_error}` }
+      ? { cls: "fail", text: t("上次测试失败：{text}", { text: p.last_check_error }) }
       : !cs && p.last_checked_at
-        ? { cls: "pass", text: "连接正常" }
+        ? { cls: "pass", text: t("连接正常") }
         : null;
 
   return (
     <div className="conn">
       <div className="conn-main">
         <div className="conn-info">
-          <b>{p.name}</b>
+          <b>{t(p.name)}</b>
           <div className="muted">{meta}</div>
         </div>
         {status && <div className={`conn-status ${status.cls}`}>{status.text}</div>}
         {cs && <CliActions c={cs} state={cli} />}
         <button type="button" onClick={test} disabled={testing}>
-          {testing ? <><Spinner />测试中…</> : "测试"}
+          {testing ? <><Spinner />{t("测试中…")}</> : t("测试")}
         </button>
         <button type="button" className="link" aria-expanded={open} onClick={() => setOpen(!open)}>
-          {open ? "收起" : "详情"}
+          {open ? t("收起") : t("详情")}
         </button>
       </div>
       {cliName && <LoginSteps cli={cliName} state={cli} />}
@@ -241,15 +242,15 @@ function ProviderRow({
               <ConfirmButton
                 className="link"
                 disabled={cli.busy}
-                message="登出后，你在终端使用这个 CLI 也要重新登录。"
-                confirmLabel="确定登出"
+                message={t("登出后，你在终端使用这个 CLI 也要重新登录。")}
+                confirmLabel={t("确定登出")}
                 onConfirm={() => cli.logout(cs.name)}
               >
-                登出这个 CLI
+                {t("登出这个 CLI")}
               </ConfirmButton>
             )}
-            <ConfirmButton className="link danger" message={`删除「${p.name}」？`} onConfirm={remove}>
-              删除连接
+            <ConfirmButton className="link danger" message={t("删除「{name}」？", { name: p.name })} onConfirm={remove}>
+              {t("删除连接")}
             </ConfirmButton>
           </div>
         </div>
@@ -284,17 +285,17 @@ function SearchSourceCard() {
       const s = await api.put<SearchSource>("/api/search/integration", { kind, api_key: key || null, base_url: base || null });
       setSrc(s);
       setKey("");
-      setMsg("已保存。");
+      setMsg(t("已保存。"));
     } catch (e) {
       setError((e as Error).message);
     }
   };
   const test = async () => {
     setError("");
-    setMsg("测试中…");
+    setMsg(t("测试中…"));
     try {
       const r = await api.post<{ results: number }>("/api/search/integration/test");
-      setMsg(`连线正常，测试查询回传 ${r.results} 笔结果。`);
+      setMsg(t("连线正常，测试查询回传 {n} 笔结果。", { n: r.results }));
     } catch (e) {
       setMsg("");
       setError((e as Error).message);
@@ -302,15 +303,15 @@ function SearchSourceCard() {
   };
 
   const options = [
-    ["none", "模型自带搜索", "使用“职位搜索”任务的模型"],
-    ["tavily", "Tavily", "搜索 API，有免费额度"],
-    ["searxng", "SearXNG", "自己架设的搜索服务"],
+    ["none", t("模型自带搜索"), t("使用“职位搜索”任务的模型")],
+    ["tavily", "Tavily", t("搜索 API，有免费额度")],
+    ["searxng", "SearXNG", t("自己架设的搜索服务")],
   ] as const;
 
   return (
-    <section className="card stack" aria-label="职位搜索来源">
-      <div className="muted">LinkedIn、Indeed、Built In 等网站要先用网页搜索找到公开职位页；Greenhouse、Lever、Ashby 走官方公开 API，不需要搜索来源。Claude CLI 只开放 WebSearch 一个工具，其他任务仍关闭所有工具。</div>
-      <div className="source-options" role="radiogroup" aria-label="搜索来源">
+    <section className="card stack" aria-label={t("职位搜索来源")}>
+      <div className="muted">{t("LinkedIn、Indeed、Built In 等网站要先用网页搜索找到公开职位页；Greenhouse、Lever、Ashby 走官方公开 API，不需要搜索来源。Claude CLI 只开放 WebSearch 一个工具，其他任务仍关闭所有工具。")}</div>
+      <div className="source-options" role="radiogroup" aria-label={t("搜索来源")}>
         {options.map(([k, label, note]) => (
           <button key={k} type="button" role="radio" aria-checked={kind === k} className={`source-option${kind === k ? " on" : ""}`} onClick={() => setKind(k)}>
             <b style={{ display: "block" }}>{label}</b>
@@ -325,20 +326,20 @@ function SearchSourceCard() {
           autoComplete="off"
           value={key}
           onChange={(e) => setKey(e.target.value)}
-          placeholder={src?.integration?.kind === "tavily" && src.integration.key_last4 ? `已保存，末四码 ${src.integration.key_last4}；留空则沿用` : "Tavily API key（tvly-…）"}
+          placeholder={src?.integration?.kind === "tavily" && src.integration.key_last4 ? t("已保存，末四码 {k}；留空则沿用", { k: src.integration.key_last4 }) : "Tavily API key（tvly-…）"}
         />
       )}
-      {kind === "searxng" && <input aria-label="SearXNG 网址" value={base} onChange={(e) => setBase(e.target.value)} placeholder="SearXNG 网址，例如 http://localhost:8888（需开启 json 格式）" />}
+      {kind === "searxng" && <input aria-label={t("SearXNG 网址")} value={base} onChange={(e) => setBase(e.target.value)} placeholder={t("SearXNG 网址，例如 http://localhost:8888（需开启 json 格式）")} />}
       <div className="row">
         <button type="button" className="primary" onClick={save}>
-          保存
+          {t("保存")}
         </button>
         {src?.integration && (
           <button type="button" onClick={test}>
-            测试连线
+            {t("测试连线")}
           </button>
         )}
-        {src && <span className={src.ready ? "muted" : "error"}>目前：{src.label}</span>}
+        {src && <span className={src.ready ? "muted" : "error"}>{t("目前：{label}", { label: src.label })}</span>}
       </div>
       {msg && <p className="notice">{msg}</p>}
       {error && <p className="error">{error}</p>}
@@ -355,9 +356,9 @@ function RouteRow({ route, providers, onSave }: { route: TaskRoute; providers: P
   }, [route.provider_id, route.model]);
   return (
     <div className="route-row">
-      <div style={{ fontWeight: 500 }}>{route.label}</div>
+      <div style={{ fontWeight: 500 }}>{t(route.label)}</div>
       <select
-        aria-label={`${route.label}的连接`}
+        aria-label={t("{name}的连接", { name: t(route.label) })}
         value={pid}
         onChange={(e) => {
           setPid(e.target.value);
@@ -365,16 +366,16 @@ function RouteRow({ route, providers, onSave }: { route: TaskRoute; providers: P
           if (p && !model) setModel(p.default_model);
         }}
       >
-        <option value="">（未指定）</option>
+        <option value="">{t("（未指定）")}</option>
         {providers.map((p) => (
           <option key={p.id} value={p.id}>
-            {p.name}
+            {t(p.name)}
           </option>
         ))}
       </select>
-      <input aria-label={`${route.label}的模型`} value={model} placeholder="模型名称" onChange={(e) => setModel(e.target.value)} />
+      <input aria-label={t("{name}的模型", { name: t(route.label) })} value={model} placeholder={t("模型名称")} onChange={(e) => setModel(e.target.value)} />
       <button type="button" onClick={() => onSave(route.task, pid, model)} disabled={!!pid && !model}>
-        保存
+        {t("保存")}
       </button>
     </div>
   );
@@ -416,10 +417,10 @@ function AddProvider({ cli, onAdded }: { cli: CliLoginState; onAdded: () => void
   };
 
   return (
-    <section className="card stack" aria-label="新增连接">
+    <section className="card stack" aria-label={t("新增连接")}>
       <div className="grid">
         <label>
-          类型
+          {t("类型")}
           <select value={kind} onChange={(e) => setKind(e.target.value as ProviderKind)}>
             {KINDS.map((k) => (
               <option key={k.kind} value={k.kind}>
@@ -429,7 +430,7 @@ function AddProvider({ cli, onAdded }: { cli: CliLoginState; onAdded: () => void
           </select>
         </label>
         <label>
-          显示名称
+          {t("显示名称")}
           <input value={name} placeholder={meta.label} onChange={(e) => setName(e.target.value)} />
         </label>
         {meta.needsUrl && (
@@ -445,21 +446,21 @@ function AddProvider({ cli, onAdded }: { cli: CliLoginState; onAdded: () => void
           </label>
         )}
         <label>
-          预设模型
+          {t("预设模型")}
           <input value={model} onChange={(e) => setModel(e.target.value)} />
         </label>
       </div>
       {cliName && (
         <div className="muted">
-          {cliStatus?.available ? `已检测到 ${cliName}：${cliStatus.version}` : `${cliStatus?.error ?? "检测中…"}`} · 添加后在列表里登录。{cli.info?.notice}
+          {cliStatus?.available ? t("已检测到 {cli}：{v}", { cli: cliName, v: cliStatus.version }) : `${cliStatus?.error ?? t("检测中…")}`} · {t("添加后在列表里登录。")}{t(cli.info?.notice ?? "")}
         </div>
       )}
       {error && <p className="error">{error}</p>}
       <div className="row">
         <button type="button" className="primary" onClick={save} disabled={!model || (meta.needsKey && !apiKey)}>
-          新增
+          {t("新增")}
         </button>
-        {meta.needsKey && <span className="muted small">key 只加密保存在本机数据库；保存后只显示末四码。</span>}
+        {meta.needsKey && <span className="muted small">{t("key 只加密保存在本机数据库；保存后只显示末四码。")}</span>}
       </div>
     </section>
   );

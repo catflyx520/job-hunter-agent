@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.db import get_db
+from app.core.i18n import tr
 from app.graphs.resume_review import run_review
 from app.llm.base import LLMError
 from app.llm.registry import provider_for_task
@@ -59,7 +60,7 @@ def _detail(db: Session, r: Resume) -> ResumeDetail:
 def _get(db: Session, resume_id: uuid.UUID) -> Resume:
     r = db.get(Resume, resume_id)
     if r is None:
-        raise HTTPException(404, "找不到这份履历")
+        raise HTTPException(404, tr("找不到这份履历"))
     return r
 
 
@@ -81,9 +82,9 @@ def upload_resume(
     settings = get_settings()
     data = file.file.read(settings.max_resume_bytes + 1)
     if len(data) > settings.max_resume_bytes:
-        raise HTTPException(413, f"档案超过 {settings.max_resume_bytes // (1024 * 1024)}MB")
+        raise HTTPException(413, tr("档案超过 {v}MB", v=settings.max_resume_bytes // (1024 * 1024)))
     if not data:
-        raise HTTPException(422, "档案是空的")
+        raise HTTPException(422, tr("档案是空的"))
     filename = Path(file.filename or "resume").name
     try:
         mime = sniff_mime(data, filename)
@@ -96,8 +97,10 @@ def upload_resume(
     if existing is not None:
         raise HTTPException(
             409,
-            f"这个档案的内容和已上传的「{existing.label}」完全相同（跟档名无关）。"
-            "如果只是想重新解析，请选那个版本，在「管理」里点「重新结构化」；要上传新版本，请先存成修改过的档案。",
+            tr(
+                "这个档案的内容和已上传的「{label}」完全相同（跟档名无关）。如果只是想重新解析，请选那个版本，在「管理」里点「重新结构化」；要上传新版本，请先存成修改过的档案。",
+                label=existing.label,
+            ),
         )
 
     resume_id = uuid.uuid4()
@@ -112,7 +115,7 @@ def upload_resume(
         parsed = structure_resume(provider_for_task(db, "resume_parse"), extracted.text)
         parse_error = empty_structure_warning(parsed, extracted.text)
     except LLMError as exc:
-        parse_error = f"履历结构化失败：{exc} 你可以稍后重试，或在页面上手动填写。"
+        parse_error = tr("履历结构化失败：{exc} 你可以稍后重试，或在页面上手动填写。", exc=exc)
 
     has_active = db.scalar(select(func.count()).where(Resume.is_active.is_(True))) or 0
     r = Resume(
@@ -153,7 +156,7 @@ def reparse_resume(resume_id: uuid.UUID, db: Session = Depends(get_db)):
     try:
         parsed = structure_resume(provider_for_task(db, "resume_parse"), r.raw_text)
     except LLMError as exc:
-        raise HTTPException(502, f"履历结构化失败：{exc}") from exc
+        raise HTTPException(502, tr("履历结构化失败：{exc}", exc=exc)) from exc
     r.parsed = parsed.model_dump()
     r.parsed_confirmed_at = None
     db.flush()
@@ -178,7 +181,7 @@ def update_parsed(resume_id: uuid.UUID, body: ParsedUpdate, db: Session = Depend
 def build_chunks(resume_id: uuid.UUID, db: Session = Depends(get_db)):
     r = _get(db, resume_id)
     if r.parsed_confirmed_at is None:
-        raise HTTPException(409, "请先确认结构化履历，再建立检索资料。")
+        raise HTTPException(409, tr("请先确认结构化履历，再建立检索资料。"))
     try:
         provider = provider_for_task(db, "embedding")
         count = rebuild_chunks(db, r, provider)
@@ -192,7 +195,7 @@ def rename_resume(resume_id: uuid.UUID, body: ResumeRename, db: Session = Depend
     r = _get(db, resume_id)
     label = body.label.strip()
     if not label:
-        raise HTTPException(422, "版本名称不能是空的")
+        raise HTTPException(422, tr("版本名称不能是空的"))
     r.label = label
     db.flush()
     db.refresh(r)
@@ -235,12 +238,12 @@ def create_review(resume_id: uuid.UUID, body: ReviewRequest, db: Session = Depen
         data = _abs_path(r).read_bytes()
         layout = extract(data, r.mime).layout
     except (OSError, UnsupportedFile) as exc:
-        raise HTTPException(409, "找不到或无法读取原始履历档，无法检查版面。") from exc
+        raise HTTPException(409, tr("找不到或无法读取原始履历档，无法检查版面。")) from exc
     try:
         provider = provider_for_task(db, "resume_review")
         out = run_review(provider, r.raw_text, ParsedResume.model_validate(r.parsed), layout, target_role)
     except LLMError as exc:
-        raise HTTPException(502, f"履历评分失败：{exc}") from exc
+        raise HTTPException(502, tr("履历评分失败：{exc}", exc=exc)) from exc
     review = ResumeReview(
         resume_id=r.id,
         target_role=target_role,

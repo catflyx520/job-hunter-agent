@@ -12,17 +12,18 @@ import ResumeVersions, { ResumeUpload } from "./pages/ResumeManage";
 import Resumes from "./pages/Resumes";
 import Settings from "./pages/Settings";
 import Stats from "./pages/Stats";
+import { lang, setLang, t } from "./i18n";
 
 const NARROW = ["/resumes", "/preferences", "/facts", "/settings"];
 
 function App() {
   const { pathname } = useLocation();
-  const [model, setModel] = useState("模型连接");
+  const [model, setModel] = useState(t("模型连接"));
 
   useEffect(() => {
     api
       .get<Provider[]>("/api/providers")
-      .then((ps) => setModel(ps.find((p) => p.enabled)?.name ?? "未设置模型"))
+      .then((ps) => setModel(ps.find((p) => p.enabled)?.name ?? t("未设置模型")))
       .catch(() => undefined);
   }, [pathname]);
 
@@ -32,20 +33,28 @@ function App() {
       <header className="topbar">
         <div className="topbar-inner">
           <h1 className="brand">Job Hunter</h1>
-          <nav className="nav" aria-label="主导航">
+          <nav className="nav" aria-label={t("主导航")}>
             <NavLink to="/jobs" end>
-              职位
+              {t("职位")}
             </NavLink>
-            <NavLink to="/stats">投递统计</NavLink>
-            <NavLink to="/materials">申请材料</NavLink>
+            <NavLink to="/stats">{t("投递统计")}</NavLink>
+            <NavLink to="/materials">{t("申请材料")}</NavLink>
             <span className="nav-sep" aria-hidden="true" />
-            <NavLink to="/resumes">履历与评分</NavLink>
-            <NavLink to="/preferences">求职需求</NavLink>
-            <NavLink to="/facts">事实库</NavLink>
+            <NavLink to="/resumes">{t("履历与评分")}</NavLink>
+            <NavLink to="/preferences">{t("求职需求")}</NavLink>
+            <NavLink to="/facts">{t("事实库")}</NavLink>
           </nav>
-          <NavLink to="/settings" className="model-link" title="模型连接">
-            {model}
+          <NavLink to="/settings" className="model-link" title={t("模型连接")}>
+            {t(model)}
           </NavLink>
+          <div className="seg lang-switch" role="group" aria-label="Language / 语言">
+            <button type="button" className={lang === "en" ? "on" : ""} aria-pressed={lang === "en"} onClick={() => setLang("en")}>
+              EN
+            </button>
+            <button type="button" className={lang === "zh" ? "on" : ""} aria-pressed={lang === "zh"} onClick={() => setLang("zh")}>
+              中文
+            </button>
+          </div>
         </div>
       </header>
       <main className={`page${narrow ? " narrow" : ""}`}>

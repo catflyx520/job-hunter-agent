@@ -85,6 +85,16 @@ def truncate_all(engine) -> None:
         conn.execute(text("UPDATE job_sites SET enabled = false, max_results = 20"))
 
 
+@pytest.fixture(autouse=True)
+def zh_messages():
+    """不经过 HTTP 的逻辑测试也用中文（预设是英文）。"""
+    from app.core.i18n import _lang, set_lang
+
+    token = set_lang("zh")
+    yield
+    _lang.reset(token)
+
+
 # 所有取得 provider 的地方都换成假 provider
 PROVIDER_LOOKUPS = (
     "app.api.resumes",
@@ -120,6 +130,7 @@ def client(database, monkeypatch):
     fake.kind = "fake"
     for module in PROVIDER_LOOKUPS:
         monkeypatch.setattr(importlib.import_module(module), "provider_for_task", lambda db, task: fake)
-    with TestClient(create_app()) as c:
+    # 既有测试检查中文讯息；英文另有测试（test_i18n.py）
+    with TestClient(create_app(), headers={"X-UI-Lang": "zh"}) as c:
         c.fake = fake  # type: ignore[attr-defined]
         yield c

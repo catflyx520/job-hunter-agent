@@ -5,6 +5,7 @@ import { StatusSelect } from "./ApplicationControl";
 import { APP_STATUS, RUN_SITE_STATUS, RUN_STATUS, SPONSOR_STATUS, WORK_MODE, EMPLOYMENT, PROGRAM, salary, show } from "./labels";
 import RoleTags from "./RoleTags";
 import { ConfirmButton, Loading, Seg, Spinner, usePopover } from "./ui";
+import { locale, t } from "../i18n";
 
 
 type Bucket = "kept" | "excluded" | "duplicate" | "all" | "applied" | "deleted";
@@ -14,10 +15,18 @@ const isSubmitted = (s: ApplicationStatus | null) => !!s && SUBMITTED.includes(s
 type JobRow = JobSummary | RunJob;
 
 const ALL_SAVED = "__all__";
-const PART_LABEL = { role: "职位 / 产品内容", tech: "技术栈", experience: "年资与范围", location: "地点与工作方式", recency: "新鲜度与可信度" };
-const SEVERITY = { low: "低", medium: "中", high: "高" };
-const REC_TAG = { apply: { text: "建议投递", cls: "pass" }, maybe: { text: "可考虑 · 先看风险", cls: "warn" }, skip: { text: "建议跳过", cls: "" } };
-const POLICY_TAG = { explicit_yes: { text: "写明提供", cls: "pass" }, explicit_no: { text: "写明不提供", cls: "fail" }, unclear: { text: "JD 没写", cls: "" } };
+const PART_LABEL = { role: t("职位 / 产品内容"), tech: t("技术栈"), experience: t("年资与范围"), location: t("地点与工作方式"), recency: t("新鲜度与可信度") };
+const SEVERITY = { low: t("低"), medium: t("中"), high: t("高") };
+const REC_TAG = { apply: { text: t("建议投递"), cls: "pass" }, maybe: { text: t("可考虑 · 先看风险"), cls: "warn" }, skip: { text: t("建议跳过"), cls: "" } };
+const POLICY_TAG = { explicit_yes: { text: t("写明提供"), cls: "pass" }, explicit_no: { text: t("写明不提供"), cls: "fail" }, unclear: { text: t("JD 没写"), cls: "" } };
+
+// 导入步骤（后端 import_status.STAGES 的代码）
+const STAGE_LABEL: Record<string, string> = {
+  reading: "读取官方原始档",
+  summarizing: "写出汇总档",
+  importing: "写入数据库",
+  recomputing: "重算职位公司的签证状态",
+};
 
 interface ImportStatus {
   state: "running" | "done" | "failed" | "stale";
@@ -43,8 +52,8 @@ function ImportBanner({ coverage }: { coverage: Coverage }) {
   if (s.state === "failed" || s.state === "stale") {
     return (
       <p className="error">
-        签证资料导入{s.state === "stale" ? "已经很久没有进度，可能中断了" : "失败"}
-        {s.message ? `：${s.message}` : "。"}请在 backend/ 重新执行 <code>uv run python ../scripts/sponsor_data/build.py</code>。
+        {s.state === "stale" ? t("签证资料导入已经很久没有进度，可能中断了") : t("签证资料导入失败")}
+        {s.message ? `: ${s.message}` : "."} {t("请在 backend/ 重新执行")} <code>uv run python ../scripts/sponsor_data/build.py</code>
       </p>
     );
   }
@@ -57,16 +66,16 @@ function ImportBanner({ coverage }: { coverage: Coverage }) {
         : null;
   const detail =
     s.stage === "reading" && s.files_total
-      ? `第 ${(s.files_done ?? 0) + 1} / ${s.files_total} 个档：${s.file ?? ""}`
+      ? t("第 {i} / {n} 个档：{file}", { i: (s.files_done ?? 0) + 1, n: s.files_total, file: s.file ?? "" })
       : s.stage === "importing" && s.employers_done
-        ? `已写入 ${(s.employers_done ?? 0).toLocaleString()}${s.employers_total ? ` / ${s.employers_total.toLocaleString()}` : ""} 个雇主`
+        ? t("已写入 {done}{total} 个雇主", { done: (s.employers_done ?? 0).toLocaleString(locale), total: s.employers_total ? ` / ${s.employers_total.toLocaleString(locale)}` : "" })
         : "";
   return (
     <div className="notice search-progress" role="status">
       <div className="loading-line">
         <Spinner size={16} />
         <span>
-          正在导入官方签证资料 · {s.stage_label || "准备中"}
+          {t("正在导入官方签证资料")} · {s.stage ? t(STAGE_LABEL[s.stage] ?? s.stage) : t("准备中")}
           {detail && <span className="muted"> · {detail}</span>}
         </span>
       </div>
@@ -76,7 +85,7 @@ function ImportBanner({ coverage }: { coverage: Coverage }) {
         </div>
         <b className="progress-pct">{pct == null ? "—" : `${pct}%`}</b>
       </div>
-      <div className="muted small">{s.stage === "reading" ? "大的 xlsx 一个要读好几分钟。" : ""}导入完成后，职位的 H-1B / 绿卡会自动更新，不用重新搜索。</div>
+      <div className="muted small">{s.stage === "reading" ? t("大的 xlsx 一个要读好几分钟。") : ""}{t("导入完成后，职位的 H-1B / 绿卡会自动更新，不用重新搜索。")}</div>
     </div>
   );
 }
@@ -86,10 +95,10 @@ const inBucket = (j: JobRow, b: Bucket) => (b === "all" ? bucketOf(j) !== "delet
 // 签证历史筛选：依官方资料里查到的 H-1B / PERM 记录（未查的职位只在「全部」出现）
 type VisaFilter = "all" | "h1b" | "perm" | "both";
 const VISA_FILTER: Record<VisaFilter, { label: string; test: (j: JobRow) => boolean }> = {
-  all: { label: "全部签证记录", test: () => true },
-  h1b: { label: "查到 H-1B 历史", test: (j) => !!j.sponsor_h1b },
-  perm: { label: "查到 PERM", test: (j) => !!j.sponsor_perm },
-  both: { label: "两类均查到", test: (j) => !!j.sponsor_h1b && !!j.sponsor_perm },
+  all: { label: t("全部签证记录"), test: () => true },
+  h1b: { label: t("查到 H-1B 历史"), test: (j) => !!j.sponsor_h1b },
+  perm: { label: t("查到 PERM"), test: (j) => !!j.sponsor_perm },
+  both: { label: t("两类均查到"), test: (j) => !!j.sponsor_h1b && !!j.sponsor_perm },
 };
 
 // 每个职位只属于一个分组：已删除 > 已投递 > 搜索结果（待看 / 被排除 / 之前已有）。「全部」= 除已删除以外的所有职位
@@ -107,7 +116,7 @@ const bucketOf = (j: JobRow): Exclude<Bucket, "all"> =>
 function runLabel(r: SearchRun) {
   const d = new Date(r.started_at ?? r.created_at);
   const time = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  return `${time} · ${RUN_STATUS[r.status].text}${r.counts.kept != null ? ` · 保留 ${r.counts.kept}` : ""}`;
+  return `${time} · ${RUN_STATUS[r.status].text}${r.counts.kept != null ? ` · ${t("保留 {n}", { n: r.counts.kept })}` : ""}`;
 }
 
 function linkify(text: string): ReactNode[] {
@@ -169,19 +178,19 @@ export default function Jobs() {
   const importing = coverage?.import?.state === "running";
   useEffect(() => {
     if (!importing) return;
-    const t = setInterval(() => {
+    const timer = setInterval(() => {
       api
         .get<Coverage>("/api/sponsor/coverage")
         .then((c) => {
           setCoverage(c);
           if (c.import?.state === "done") {
-            setNotice(`签证资料导入完成：${c.import.message ?? ""}职位的 H-1B / 绿卡已更新。`);
+            setNotice(t("签证资料导入完成，职位的 H-1B / 绿卡已更新。"));
             (view === ALL_SAVED ? loadSaved() : loadRun()).catch(() => undefined);
           }
         })
         .catch(() => undefined);
     }, 5000);
-    return () => clearInterval(t);
+    return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [importing]);
 
@@ -208,8 +217,8 @@ export default function Jobs() {
   const active = run?.status === "pending" || run?.status === "running";
   useEffect(() => {
     if (!active) return;
-    const t = setInterval(() => void loadRun().catch(() => undefined), 3000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => void loadRun().catch(() => undefined), 3000);
+    return () => clearInterval(timer);
   }, [active, loadRun]);
 
   // 跑完时更新批次清单
@@ -291,8 +300,8 @@ export default function Jobs() {
     if (sort === "score") return [...list].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
     if (timeSorted) {
       // 已投递按投递时间、已删除按删除时间，新的在上面
-      const t = (j: JobRow) => Date.parse((bucket === "applied" ? j.applied_at : j.status_at) ?? j.status_at ?? "") || 0;
-      return [...list].sort((a, b) => t(b) - t(a));
+      const when = (j: JobRow) => Date.parse((bucket === "applied" ? j.applied_at : j.status_at) ?? j.status_at ?? "") || 0;
+      return [...list].sort((a, b) => when(b) - when(a));
     }
     return list;
   }, [all, bucket, visaFilter, sort, timeSorted]);
@@ -306,9 +315,9 @@ export default function Jobs() {
   const bad = run ? run.sites.filter((s) => s.status === "blocked" || s.status === "failed").length : 0;
   const sourceSummary = active
     ? p?.phase === "searching"
-      ? "正在各网站搜索…"
-      : `${run!.sites.length - bad} 个正常 · ${bad} 个有问题`
-    : `${chosen.length} 个来源 · 最多 ${estimate} 个`;
+      ? t("正在各网站搜索…")
+      : t("{ok} 个正常 · {bad} 个有问题", { ok: run!.sites.length - bad, bad })
+    : t("{n} 个来源 · 最多 {max} 个", { n: chosen.length, max: estimate });
 
   return (
     <div className="stack">
@@ -317,51 +326,51 @@ export default function Jobs() {
         <p className="notice row between">
           <span>{notice}</span>
           <button type="button" className="link" onClick={() => setNotice("")}>
-            知道了
+            {t("知道了")}
           </button>
         </p>
       )}
       {source && !source.ready && (
         <p className="error">
-          搜索来源：{source.label} · <Link to="/settings">到模型连接处理</Link>（Greenhouse / Lever / Ashby 不需要搜索来源，仍可搜索）
+          {t("搜索来源：{label}", { label: source.label })} · <Link to="/settings">{t("到模型连接处理")}</Link> {t("（Greenhouse / Lever / Ashby 不需要搜索来源，仍可搜索）")}
         </p>
       )}
       {coverage && <ImportBanner coverage={coverage} />}
       {coverage && coverage.dataset_count === 0 && !coverage.import && (
         <p className="notice">
-          尚未导入官方签证资料，签证历史会显示「未查」。导入方式见 README 的「签证资料」一节（<code>scripts/sponsor_data/</code>）。
+          {t("尚未导入官方签证资料，签证历史会显示「未查」。导入方式见 README 的「签证资料」一节")} (<code>scripts/sponsor_data/</code>).
         </p>
       )}
 
-      <section className="search-row" aria-label="搜索条件" ref={pop.ref}>
+      <section className="search-row" aria-label={t("搜索条件")} ref={pop.ref}>
         <div className="search-cells">
           <div className="pop-wrap">
             <button type="button" className="cell" aria-expanded={pop.open === "roles"} onClick={() => pop.toggle("roles")}>
-              <span className="cell-label">目标职位 ▾</span>
+              <span className="cell-label">{t("目标职位 ▾")}</span>
               <span className="cell-value one-line">
-                {roles.length ? roles[0] : "未启用任何职位"}
+                {roles.length ? roles[0] : t("未启用任何职位")}
                 {roles.length > 1 && <span className="muted"> +{roles.length - 1}</span>}
-                {paused.size > 0 && <span className="muted small"> · {paused.size} 个停用</span>}
+                {paused.size > 0 && <span className="muted small"> · {t("{n} 个停用", { n: paused.size })}</span>}
               </span>
             </button>
             {pop.open === "roles" && prefs && (
               <div className="pop">
                 <div className="row between">
-                  <b>目标职位</b>
-                  <span className="muted small">{savingRoles ? <><Spinner /> 保存中</> : "改动会直接保存"}</span>
+                  <b>{t("目标职位")}</b>
+                  <span className="muted small">{savingRoles ? <><Spinner /> {t("保存中")}</> : t("改动会直接保存")}</span>
                 </div>
                 <RoleTags roles={prefs.target_roles} paused={prefs.paused_roles} onChange={saveRoles} />
-                <div className="muted small">点 tag 切换启用 / 停用；停用的不会拿去搜索和评分。其他条件到 <Link to="/preferences">求职需求</Link> 修改。</div>
+                <div className="muted small">{t("点 tag 切换启用 / 停用；停用的不会拿去搜索和评分。其他条件到")} <Link to="/preferences">{t("求职需求")}</Link> {t("修改。")}</div>
               </div>
             )}
           </div>
           <Link to="/preferences" className="cell">
-            <span className="cell-label">地点顺序</span>
-            <span className="cell-value">{prefs?.locations.filter(Boolean).join(" → ") || "未填写"}</span>
+            <span className="cell-label">{t("地点顺序")}</span>
+            <span className="cell-value">{prefs?.locations.filter(Boolean).join(" → ") || t("未填写")}</span>
           </Link>
           <div className="pop-wrap">
             <button type="button" className="cell" aria-expanded={pop.open === "sources"} onClick={() => pop.toggle("sources")}>
-              <span className="cell-label">来源 ▾</span>
+              <span className="cell-label">{t("来源 ▾")}</span>
               <span className="cell-value">{sourceSummary}</span>
             </button>
             {pop.open === "sources" && <SourcesPanel sites={sites} run={active ? run : null} boardCount={boardCount} onUpdate={updateSite} onBoardsChanged={loadSites} />}
@@ -369,25 +378,25 @@ export default function Jobs() {
           <label className="cell">
             <input type="checkbox" checked={sponsor} onChange={(e) => setSponsor(e.target.checked)} />
             <span>
-              <span className="cell-label">签证历史</span>
-              <span className="cell-value">同时查 H-1B / 绿卡</span>
+              <span className="cell-label">{t("签证历史")}</span>
+              <span className="cell-value">{t("同时查 H-1B / 绿卡")}</span>
             </span>
           </label>
         </div>
 
         {active ? (
           <button type="button" onClick={cancel}>
-            {p?.phase === "searching" ? "搜索中" : `${p?.done ?? 0} / ${p?.total ?? 0}`} · 取消
+            {p?.phase === "searching" ? t("搜索中") : `${p?.done ?? 0} / ${p?.total ?? 0}`} · {t("取消")}
           </button>
         ) : (
           <button type="button" className="primary" onClick={start} disabled={starting || busy || chosen.length === 0}>
-            {busy ? <><Spinner />搜索进行中…</> : starting ? <><Spinner />正在建立批次…</> : "开始搜索"}
+            {busy ? <><Spinner />{t("搜索进行中…")}</> : starting ? <><Spinner />{t("正在建立批次…")}</> : t("开始搜索")}
           </button>
         )}
 
         <div className="pop-wrap">
           <button type="button" aria-expanded={pop.open === "paste"} onClick={() => pop.toggle("paste")}>
-            贴职位
+            {t("贴职位")}
           </button>
           {pop.open === "paste" && (
             <div className="pop right">
@@ -397,48 +406,48 @@ export default function Jobs() {
         </div>
       </section>
 
-      <section className="filter-row" aria-label="结果筛选">
+      <section className="filter-row" aria-label={t("结果筛选")}>
         <div className="row">
-          <select aria-label="搜索批次" value={view ?? ""} onChange={(e) => setView(e.target.value)} style={{ maxWidth: "100%" }}>
+          <select aria-label={t("搜索批次")} value={view ?? ""} onChange={(e) => setView(e.target.value)} style={{ maxWidth: "100%" }}>
             {(runs ?? []).map((r) => (
               <option key={r.id} value={r.id}>
                 {runLabel(r)}
               </option>
             ))}
-            <option value={ALL_SAVED}>所有已存的职位</option>
+            <option value={ALL_SAVED}>{t("所有已存的职位")}</option>
           </select>
           <Seg<Bucket>
-            label="职位分组"
+            label={t("职位分组")}
             value={bucket}
             onChange={setBucket}
             options={[
-              { value: "kept", label: `待看 ${count("kept")}` },
-              { value: "applied", label: `已投递 ${count("applied")}` },
-              { value: "excluded", label: `被排除 ${count("excluded")}` },
-              { value: "duplicate", label: `之前已有 ${count("duplicate")}` },
-              { value: "all", label: `全部 ${count("all")}` },
-              { value: "deleted", label: `已删除 ${count("deleted")}` },
+              { value: "kept", label: t("待看 {n}", { n: count("kept") }) },
+              { value: "applied", label: t("已投递 {n}", { n: count("applied") }) },
+              { value: "excluded", label: t("被排除 {n}", { n: count("excluded") }) },
+              { value: "duplicate", label: t("之前已有 {n}", { n: count("duplicate") }) },
+              { value: "all", label: t("全部 {n}", { n: count("all") }) },
+              { value: "deleted", label: t("已删除 {n}", { n: count("deleted") }) },
             ]}
           />
         </div>
         <div className="row">
-          <select aria-label="签证筛选" value={visaFilter} onChange={(e) => setVisaFilter(e.target.value as VisaFilter)}>
+          <select aria-label={t("签证筛选")} value={visaFilter} onChange={(e) => setVisaFilter(e.target.value as VisaFilter)}>
             {(Object.keys(VISA_FILTER) as VisaFilter[]).map((k) => (
               <option key={k} value={k}>
                 {VISA_FILTER[k].label}
               </option>
             ))}
           </select>
-          <select aria-label="排序" value={sort} onChange={(e) => setSort(e.target.value as "place" | "score")}>
-            <option value="place">{bucket === "applied" ? "排序：最近投递" : bucket === "deleted" ? "排序：最近删除" : "排序：地点优先"}</option>
-            <option value="score">排序：匹配分数</option>
+          <select aria-label={t("排序")} value={sort} onChange={(e) => setSort(e.target.value as "place" | "score")}>
+            <option value="place">{bucket === "applied" ? t("排序：最近投递") : bucket === "deleted" ? t("排序：最近删除") : t("排序：地点优先")}</option>
+            <option value="score">{t("排序：匹配分数")}</option>
           </select>
         </div>
       </section>
 
       {run?.error && <p className="error">{run.error}</p>}
 
-      <section className="stack" aria-label="职位列表">
+      <section className="stack" aria-label={t("职位列表")}>
         {visible.map((j) => (
           <JobCard
             key={j.id}
@@ -448,24 +457,24 @@ export default function Jobs() {
             onBlacklisted={reloadJobs}
           />
         ))}
-        {(runs === null || (view === ALL_SAVED && saved === null) || (runId && run === null)) && !error && <Loading className="card" text="读取职位中…" />}
+        {(runs === null || (view === ALL_SAVED && saved === null) || (runId && run === null)) && !error && <Loading className="card" text={t("读取职位中…")} />}
         {runs && !(view === ALL_SAVED && saved === null) && !(runId && run === null) && visible.length === 0 && !active && (
-          <div className="card muted">{bucket === "deleted" ? "没有已删除的职位。" : bucket === "applied" ? "还没有标记为已投递的职位。投完后按职位卡上的「我已投递」。" : "没有符合筛选条件的职位。"}</div>
+          <div className="card muted">{bucket === "deleted" ? t("没有已删除的职位。") : bucket === "applied" ? t("还没有标记为已投递的职位。投完后按职位卡上的「我已投递」。") : t("没有符合筛选条件的职位。")}</div>
         )}
         {active && (
           <div className="card search-progress">
             <div className="loading-line muted">
               <Spinner size={18} />
               <span>
-                {searching ? "正在各网站搜索职位…" : "正在读取、评分职位…"}
-                {visible.length === 0 ? "处理好的职位会显示在这里。" : "处理好的职位会陆续加进来。"}可以离开这个页面，搜索会继续。
+                {searching ? t("正在各网站搜索职位…") : t("正在读取、评分职位…")}
+                {visible.length === 0 ? t("处理好的职位会显示在这里。") : t("处理好的职位会陆续加进来。")} {t("可以离开这个页面，搜索会继续。")}
               </span>
             </div>
             <div className="progress-row">
               <div
                 className={`progress${searching ? " indeterminate" : ""}`}
                 role="progressbar"
-                aria-label="搜索进度"
+                aria-label={t("搜索进度")}
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={searching ? undefined : pct}
@@ -474,7 +483,7 @@ export default function Jobs() {
               </div>
               <b className="progress-pct">{searching ? "—" : `${pct}%`}</b>
             </div>
-            <div className="muted small">{searching ? "还在找职位网址，找完才知道总数" : `已处理 ${p?.done ?? 0} / ${p?.total ?? 0} 个职位`}</div>
+            <div className="muted small">{searching ? t("还在找职位网址，找完才知道总数") : t("已处理 {done} / {total} 个职位", { done: p?.done ?? 0, total: p?.total ?? 0 })}</div>
           </div>
         )}
       </section>
@@ -502,7 +511,7 @@ function SourcesPanel({
         <AtsBoards onChange={onBoardsChanged} />
         <div>
           <button type="button" className="link" onClick={() => setBoards(false)}>
-            ← 返回来源
+            {t("← 返回来源")}
           </button>
         </div>
       </div>
@@ -519,26 +528,26 @@ function SourcesPanel({
               <label className="inline">
                 <input type="checkbox" checked={s.enabled} disabled={pasteOnly} onChange={(e) => onUpdate(s.id, { enabled: e.target.checked })} />
                 <span>
-                  <b>{s.name}</b>
+                  <b>{t(s.name)}</b>
                   <span className="muted small" style={{ display: "block" }}>
                     {live ? (
                       <>
-                        {RUN_SITE_STATUS[live.status].text} · 找到 {live.found_count}
+                        {RUN_SITE_STATUS[live.status].text} · {t("找到 {n}", { n: live.found_count })}
                         {live.message && <> · {linkify(live.message)}</>}
                       </>
                     ) : pasteOnly ? (
-                      "只支援贴网址 / JD"
+                      t("只支援贴网址 / JD")
                     ) : s.access_method === "ats_api" ? (
-                      `官方 API · ${s.boards} 个公司 board`
+                      t("官方 API · {n} 个公司 board", { n: s.boards })
                     ) : (
-                      `网页搜索 · 只读公开职位页${s.limitation_note ? ` · ${s.limitation_note}` : ""}`
+                      `${t("网页搜索 · 只读公开职位页")}${s.limitation_note ? ` · ${t(s.limitation_note)}` : ""}`
                     )}
                   </span>
                 </span>
               </label>
               {!pasteOnly && (
                 <label className="inline">
-                  上限
+                  {t("上限")}
                   <input
                     type="number"
                     min={1}
@@ -553,12 +562,12 @@ function SourcesPanel({
         })}
       </div>
       <div className="row between">
-        <span className="muted">每个职位约 20–40 秒</span>
+        <span className="muted">{t("每个职位约 20–40 秒")}</span>
         <button type="button" className="link" onClick={() => setBoards(true)}>
-          管理公司 board（{boardCount}）
+          {t("管理公司 board（{n}）", { n: boardCount })}
         </button>
       </div>
-      <div className="muted small">只读取公开页面；遇到登录、CAPTCHA 或验证页就停下并记录原因，不绕过。本工具不会代你投递或联系雇主。</div>
+      <div className="muted small">{t("只读取公开页面；遇到登录、CAPTCHA 或验证页就停下并记录原因，不绕过。本工具不会代你投递或联系雇主。")}</div>
     </div>
   );
 }
@@ -635,17 +644,17 @@ function JobCard({
   const deleted = status === "dismissed";
 
   const excluded = run ? run.outcome === "excluded" : job.excluded;
-  const rec = job.recommendation ? REC_TAG[job.recommendation] : excluded ? { text: "已排除", cls: "fail" } : { text: "未评分", cls: "" };
+  const rec = job.recommendation ? REC_TAG[job.recommendation] : excluded ? { text: t("已排除"), cls: "fail" } : { text: t("未评分"), cls: "" };
   const policy = POLICY_TAG[job.sponsorship_policy];
   const visa = job.sponsor_status ? SPONSOR_STATUS[job.sponsor_status] : null;
-  const posted = job.posted_text || (job.posted_at ? `发布于 ${new Date(job.posted_at).toLocaleDateString()}` : "发布时间未知");
+  const posted = job.posted_text || (job.posted_at ? t("发布于 {date}", { date: new Date(job.posted_at).toLocaleDateString(locale) }) : t("发布时间未知"));
   const note =
     run && run.exclusion_reasons.length > 0
-      ? `排除原因：${run.exclusion_reasons.map((r) => r.label).join("；")}`
+      ? t("排除原因：{list}", { list: run.exclusion_reasons.map((r) => t(r.label)).join(t("；")) })
       : run?.outcome === "duplicate"
-        ? "在之前的搜索批次里已经出现过。"
+        ? t("在之前的搜索批次里已经出现过。")
         : EMPLOYMENT[job.employment_type];
-  const verified = job.status === "unverified" ? "未在官网核实是否仍在招聘" : job.status === "expired" ? "已下架 / 过期" : "仍在招聘（已读取页面）";
+  const verified = job.status === "unverified" ? t("未在官网核实是否仍在招聘") : job.status === "expired" ? t("已下架 / 过期") : t("仍在招聘（已读取页面）");
   const sourceLine = [run?.found_on.join("、"), job.company.display_name].filter(Boolean).join(" · ");
   const m = detail?.match;
 
@@ -661,12 +670,12 @@ function JobCard({
             {isSubmitted(status) && (
               <span className={`badge applied-tag ${status === "rejected" ? "fail" : status === "ghosted" ? "warn" : ""}`}>
                 ✓ {APP_STATUS[status!].text}
-                {appliedAt && ` · ${new Date(appliedAt).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}${status === "applied" ? "" : " 投递"}`}
+                {appliedAt && ` · ${new Date(appliedAt).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}${status === "applied" ? "" : t(" 投递")}`}
               </span>
             )}
             <span className={`badge ${rec.cls}`}>{rec.text}</span>
             <span className={`badge ${policy.cls}`}>Sponsorship：{policy.text}</span>
-            {visa && <span className={`badge ${visa.cls}`}>H-1B / 绿卡：{visa.text}</span>}
+            {visa && <span className={`badge ${visa.cls}`}>{t("H-1B / 绿卡：{text}", { text: visa.text })}</span>}
           </div>
           <div>
             {show(job.location_text)} · {WORK_MODE[job.work_mode]}
@@ -680,35 +689,35 @@ function JobCard({
         </div>
         <div className="job-score">
           <b>
-            {job.score ?? "未评分"}
+            {job.score ?? t("未评分")}
             {job.score != null && <span className="muted small"> / 100</span>}
           </b>
-          <span className="muted small">{job.score != null ? "匹配度估计" : excluded ? "已排除" : "尚未评分"}</span>
+          <span className="muted small">{job.score != null ? t("匹配度估计") : excluded ? t("已排除") : t("尚未评分")}</span>
         </div>
       </div>
 
       <button type="button" className="job-toggle" aria-expanded={open} onClick={toggle}>
-        {open ? "▼" : "▶"} 匹配理由、风险和签证历史
+        {open ? "▼" : "▶"} {t("匹配理由、风险和签证历史")}
       </button>
       {open && !detail && !error && <Loading className="pad-x" />}
       {open && detail && (
         <div className="job-more">
           <div>
-            <h3>为什么匹配</h3>
-            {!m && <p className="muted">{excluded ? "这个职位已被排除，没有评分。" : "尚未评分。"}</p>}
-            {m && m.reasons.length === 0 && <p className="muted">没有可以引用履历证据的理由。</p>}
+            <h3>{t("为什么匹配")}</h3>
+            {!m && <p className="muted">{excluded ? t("这个职位已被排除，没有评分。") : t("尚未评分。")}</p>}
+            {m && m.reasons.length === 0 && <p className="muted">{t("没有可以引用履历证据的理由。")}</p>}
             {m?.reasons.map((r, i) => (
               <div className="reason" key={i}>
                 <div>{r.text}</div>
                 {r.chunk_ids.map((c) => (
                   <div className="evidence-box" key={c}>
-                    履历证据：{detail.evidence[c] ?? c}
+                    {t("履历证据：{text}", { text: detail.evidence[c] ?? c })}
                   </div>
                 ))}
               </div>
             ))}
-            <h3>缺口与风险</h3>
-            {(!m || m.gaps.length === 0) && <p className="muted">无。</p>}
+            <h3>{t("缺口与风险")}</h3>
+            {(!m || m.gaps.length === 0) && <p className="muted">{t("无。")}</p>}
             {m?.gaps.map((g, i) => (
               <div className="reason" key={i}>
                 <b style={{ color: g.severity === "high" ? "var(--fail)" : "var(--warn)", fontSize: 12 }}>{SEVERITY[g.severity]}</b> {g.text}
@@ -718,7 +727,7 @@ function JobCard({
           <div>
             {m && (
               <>
-                <h3>分项</h3>
+                <h3>{t("分项")}</h3>
                 {(Object.keys(PART_LABEL) as (keyof typeof PART_LABEL)[]).map((k) => (
                   <div className="part" key={k} title={m.breakdown[k].reason}>
                     <div className="part-head">
@@ -732,10 +741,10 @@ function JobCard({
                     </div>
                   </div>
                 ))}
-                <p className="muted small">分数是契合度估计，不是录取概率。</p>
+                <p className="muted small">{t("分数是契合度估计，不是录取概率。")}</p>
               </>
             )}
-            <h3>公司签证历史</h3>
+            <h3>{t("公司签证历史")}</h3>
             {detail.sponsor ? (
               <>
                 <div>
@@ -748,10 +757,10 @@ function JobCard({
                 ))}
               </>
             ) : (
-              <div className="muted">未查。</div>
+              <div className="muted">{t("未查。")}</div>
             )}
             <Link to={`/jobs/${job.id}`} className="btn" style={{ border: 0, padding: 0, color: "var(--accent-text)" }}>
-              查看 JD 全文与完整记录
+              {t("查看 JD 全文与完整记录")}
             </Link>
           </div>
         </div>
@@ -763,35 +772,35 @@ function JobCard({
         <div className="job-actions">
           {job.apply_url && (
             <a className="btn accent" href={job.apply_url} target="_blank" rel="noopener noreferrer">
-              打开职位 / 自行申请 ↗
+              {t("打开职位 / 自行申请 ↗")}
             </a>
           )}
           <button type="button" onClick={() => nav(`/materials?job=${job.id}&kind=cover_letter`)}>
-            生成 Cover Letter
+            {t("生成 Cover Letter")}
           </button>
           <button type="button" onClick={() => nav(`/materials?job=${job.id}&kind=qa`)}>
-            申请问答
+            {t("申请问答")}
           </button>
           {!deleted && (status === null || status === "saved") && (
             <button type="button" onClick={markApplied}>
-              我已投递
+              {t("我已投递")}
             </button>
           )}
           {deleted ? (
             <>
               <button type="button" onClick={restore}>
-                还原
+                {t("还原")}
               </button>
-              <ConfirmButton className="danger" message={`永久删除「${job.title}」？评分、来源、投递记录都会一起删除，无法复原。`} confirmLabel="确定永久删除" onConfirm={purge}>
-                永久删除
+              <ConfirmButton className="danger" message={t("永久删除「{title}」？评分、来源、投递记录都会一起删除，无法复原。", { title: job.title })} confirmLabel={t("确定永久删除")} onConfirm={purge}>
+                {t("永久删除")}
               </ConfirmButton>
             </>
           ) : (
             <>
               <StatusSelect jobId={job.id} status={status} onChange={changed} />
               <BlockButton job={job} onDone={onBlacklisted} />
-              <ConfirmButton className="danger" message={`删除「${job.title}」？会移到「已删除」，可以还原。`} onConfirm={dismiss}>
-                删除
+              <ConfirmButton className="danger" message={t("删除「{title}」？会移到「已删除」，可以还原。", { title: job.title })} onConfirm={dismiss}>
+                {t("删除")}
               </ConfirmButton>
             </>
           )}
@@ -819,11 +828,11 @@ function BlockButton({ job, onDone }: { job: JobRow; onDone: (message: string) =
         value: kind === "company" ? job.company.display_name : phrase.trim(),
       });
       pop.setOpen(null);
-      const what = kind === "company" ? `公司「${job.company.display_name}」` : `职位「${phrase.trim()}」`;
+      const what = kind === "company" ? t("公司「{name}」", { name: job.company.display_name }) : t("职位「{name}」", { name: phrase.trim() });
       onDone(
-        `已把${what}加进黑名单，${r.dismissed} 个相符的职位移到「已删除」` +
-          (r.kept_submitted ? `；${r.kept_submitted} 个已投递的保留` : "") +
-          "。之后的搜索会排除它们。",
+        t("已把{what}加进黑名单，{n} 个相符的职位移到「已删除」", { what, n: r.dismissed }) +
+          (r.kept_submitted ? t("；{n} 个已投递的保留", { n: r.kept_submitted }) : "") +
+          t("。之后的搜索会排除它们。"),
       );
     } catch (e) {
       setError((e as Error).message);
@@ -835,41 +844,41 @@ function BlockButton({ job, onDone }: { job: JobRow; onDone: (message: string) =
   return (
     <div className="pop-wrap" ref={pop.ref}>
       <button type="button" aria-expanded={pop.open === "block"} onClick={() => pop.toggle("block")}>
-        拉黑 ▾
+        {t("拉黑 ▾")}
       </button>
       {pop.open === "block" && (
         <div className="pop right up">
-          <b>拉黑后不再看到</b>
+          <b>{t("拉黑后不再看到")}</b>
           <label className="inline">
             <input type="radio" name={`block-${job.id}`} checked={kind === "company"} onChange={() => setKind("company")} />
             <span>
-              这家公司：<b>{job.company.display_name}</b>
-              <span className="muted small" style={{ display: "block" }}>这家公司的所有职位</span>
+              {t("这家公司：")}<b>{job.company.display_name}</b>
+              <span className="muted small" style={{ display: "block" }}>{t("这家公司的所有职位")}</span>
             </span>
           </label>
           <label className="inline">
             <input type="radio" name={`block-${job.id}`} checked={kind === "title"} onChange={() => setKind("title")} />
             <span style={{ flex: 1 }}>
-              类似职位
-              <span className="muted small" style={{ display: "block" }}>职称里含这组词的职位（任何公司）；可以删短，例如只留「Sales Engineer」</span>
+              {t("类似职位")}
+              <span className="muted small" style={{ display: "block" }}>{t("职称里含这组词的职位（任何公司）；可以删短，例如只留「Sales Engineer」")}</span>
             </span>
           </label>
-          {kind === "title" && <input aria-label="要拉黑的职称关键词" value={phrase} onChange={(e) => setPhrase(e.target.value)} />}
-          <div className="muted small">已存的相符职位会移到「已删除」（可还原，已投递的保留），之后搜索也会排除。黑名单可在「求职需求 → 黑名单」修改。</div>
+          {kind === "title" && <input aria-label={t("要拉黑的职称关键词")} value={phrase} onChange={(e) => setPhrase(e.target.value)} />}
+          <div className="muted small">{t("已存的相符职位会移到「已删除」（可还原，已投递的保留），之后搜索也会排除。黑名单可在「求职需求 → 黑名单」修改。")}</div>
           {error && <p className="error">{error}</p>}
           <div className="row">
             <button type="button" className="danger-solid" onClick={submit} disabled={busy || (kind === "title" && !phrase.trim())}>
               {busy ? (
                 <>
                   <Spinner />
-                  拉黑中…
+                  {t("拉黑中…")}
                 </>
               ) : (
-                "确定拉黑"
+                t("确定拉黑")
               )}
             </button>
             <button type="button" onClick={() => pop.setOpen(null)}>
-              取消
+              {t("取消")}
             </button>
           </div>
         </div>
@@ -914,12 +923,12 @@ function AtsBoards({ onChange }: { onChange: () => void }) {
 
   return (
     <>
-      <div className="muted small">读过含这些链接的职位页时会自动加入，也可以手动加入。</div>
-      <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Greenhouse / Lever / Ashby 的公司 board 网址" aria-label="公司 board 网址" />
+      <div className="muted small">{t("读过含这些链接的职位页时会自动加入，也可以手动加入。")}</div>
+      <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder={t("Greenhouse / Lever / Ashby 的公司 board 网址")} aria-label={t("公司 board 网址")} />
       <div className="row">
-        <input style={{ flex: 1, minWidth: 0 }} value={company} onChange={(e) => setCompany(e.target.value)} placeholder="公司名称（选填）" aria-label="公司名称" />
+        <input style={{ flex: 1, minWidth: 0 }} value={company} onChange={(e) => setCompany(e.target.value)} placeholder={t("公司名称（选填）")} aria-label={t("公司名称")} />
         <button type="button" onClick={add} disabled={!url.trim()}>
-          加入
+          {t("加入")}
         </button>
       </div>
       {error && <p className="error">{error}</p>}
@@ -933,7 +942,7 @@ function AtsBoards({ onChange }: { onChange: () => void }) {
               </span>
             </span>
             <button type="button" className="link danger" onClick={() => remove(b.company_id)}>
-              移除
+              {t("移除")}
             </button>
           </div>
         ))}
@@ -954,14 +963,14 @@ function PasteJob() {
   const submit = async () => {
     setError("");
     try {
-      setBusy(jd.trim() ? "正在抽取职位资料…" : "正在读取网页并抽取职位资料…");
+      setBusy(jd.trim() ? t("正在抽取职位资料…") : t("正在读取网页并抽取职位资料…"));
       const r = await api.post<{ job: JobDetail; notes: string[] }>("/api/jobs/ingest", {
         url: url || null,
         jd_text: jd || null,
         company,
         title,
       });
-      setBusy("正在计算匹配评分…");
+      setBusy(t("正在计算匹配评分…"));
       await api.post(`/api/jobs/${r.job.id}/match`).catch(() => undefined); // 失败时详情页会显示原因与重试按钮
       nav(`/jobs/${r.job.id}`, { state: { notes: r.notes } });
     } catch (e) {
@@ -974,20 +983,20 @@ function PasteJob() {
   return (
     <>
       <label>
-        职位网址
+        {t("职位网址")}
         <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…" />
       </label>
       <label>
-        或贴 JD 全文（有贴就优先使用）
+        {t("或贴 JD 全文（有贴就优先使用）")}
         <textarea rows={6} value={jd} onChange={(e) => setJd(e.target.value)} />
       </label>
       <div className="row">
-        <input style={{ flex: 1, minWidth: 0 }} value={company} onChange={(e) => setCompany(e.target.value)} placeholder="公司（JD 没写时必填）" aria-label="公司" />
-        <input style={{ flex: 1, minWidth: 0 }} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="职称（选填）" aria-label="职称" />
+        <input style={{ flex: 1, minWidth: 0 }} value={company} onChange={(e) => setCompany(e.target.value)} placeholder={t("公司（JD 没写时必填）")} aria-label={t("公司")} />
+        <input style={{ flex: 1, minWidth: 0 }} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t("职称（选填）")} aria-label={t("职称")} />
       </div>
-      <div className="muted small">Handshake 等需要登录的网站请用这里。只读取公开网页；遇到登录或验证页会停止，请改贴 JD。</div>
+      <div className="muted small">{t("Handshake 等需要登录的网站请用这里。只读取公开网页；遇到登录或验证页会停止，请改贴 JD。")}</div>
       <button type="button" className="primary" onClick={submit} disabled={!!busy || (!url.trim() && !jd.trim())}>
-        {busy ? <><Spinner />{busy}</> : "抽取并评分"}
+        {busy ? <><Spinner />{busy}</> : t("抽取并评分")}
       </button>
       {error && <p className="error">{error}</p>}
     </>

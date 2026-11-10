@@ -4,6 +4,7 @@ import { api, JobSummary } from "../api";
 import { StatusSelect } from "./ApplicationControl";
 import { APP_STATUS, RECOMMENDATION, SPONSOR_STATUS, WORK_MODE, show } from "./labels";
 import { Loading, Seg, usePopover } from "./ui";
+import { t } from "../i18n";
 
 interface StatsData {
   totals: Record<string, number | null>;
@@ -52,7 +53,7 @@ interface Drill {
   value: string;
 }
 
-const POLICY: Record<string, string> = { explicit_yes: "写明提供", unclear: "没写（不明）", explicit_no: "写明不提供" };
+const POLICY: Record<string, string> = { explicit_yes: t("写明提供"), unclear: t("没写（不明）"), explicit_no: t("写明不提供") };
 const SALARY_ORDER = ["< $80k", "$80k–100k", "$100k–130k", "$130k–160k", "$160k–200k", "≥ $200k", "unknown"];
 const SCORE_ORDER = ["75–100", "55–74", "40–54", "0–39", "none"];
 
@@ -103,7 +104,7 @@ export default function Stats() {
       .catch((e) => setError(e.message));
   }, [filters]);
 
-  const tierLabel = (k: string) => (k === "none" ? "不在你的地点清单" : `第 ${k} 优先${locations[Number(k) - 1] ? `（${locations[Number(k) - 1]}）` : ""}`);
+  const tierLabel = (k: string) => (k === "none" ? t("不在你的地点清单") : t("第 {n} 优先{place}", { n: k, place: locations[Number(k) - 1] ? `（${locations[Number(k) - 1]}）` : "" }));
 
   const setF = (k: FilterKey, v: string) => {
     setDrill(null);
@@ -123,16 +124,16 @@ export default function Stats() {
 
   const dims: Dim[] = data
     ? [
-        { key: "application_status", label: "投递状态", param: "application_status", empty: "还没有标记任何状态", items: bars(data.application_status, (k) => (k === "none" ? "未标记" : APP_STATUS[k]?.text ?? k)) },
-        { key: "sponsor_status", label: "签证历史", param: "sponsor_status", items: bars(data.sponsor_status, (k) => SPONSOR_STATUS[k]?.text ?? k) },
+        { key: "application_status", label: t("投递状态"), param: "application_status", empty: t("还没有标记任何状态"), items: bars(data.application_status, (k) => (k === "none" ? t("未标记") : APP_STATUS[k]?.text ?? k)) },
+        { key: "sponsor_status", label: t("签证历史"), param: "sponsor_status", items: bars(data.sponsor_status, (k) => SPONSOR_STATUS[k]?.text ?? k) },
         { key: "sponsorship_policy", label: "Sponsorship", param: "sponsorship_policy", items: bars(data.sponsorship_policy, (k) => POLICY[k] ?? k, ["explicit_yes", "unclear", "explicit_no"]) },
-        { key: "location_tier", label: "地点", param: "location_tier", items: bars(data.location_tier, tierLabel, [...locations.map((_, i) => String(i + 1)), "none"]) },
-        { key: "work_mode", label: "工作方式", param: "work_mode", items: bars(data.work_mode, (k) => WORK_MODE[k] ?? k) },
-        { key: "salary", label: "薪资", param: "salary", note: "按年薪上限统计，时薪 × 2080。", items: bars(data.salary, (k) => (k === "unknown" ? "未列出" : k), SALARY_ORDER) },
-        { key: "score", label: "匹配分数", param: "score", note: "分数是契合度估计，不是录取概率。", items: bars(data.score, (k) => (k === "none" ? "未评分（含被排除）" : k), SCORE_ORDER) },
-        { key: "recommendation", label: "建议", param: "recommendation", items: bars(data.recommendation, (k) => (k === "none" ? "未评分" : RECOMMENDATION[k]?.text ?? k), ["apply", "maybe", "skip", "none"]) },
-        { key: "exclusion", label: "排除原因", param: "exclusion", empty: "没有被排除的职位", items: data.exclusions.map((x) => ({ key: x.code, label: x.label, count: x.count })) },
-        { key: "easy_apply", label: "Easy Apply", param: "easy_apply", items: bars(data.easy_apply, (k) => ({ yes: "有", no: "没有", unknown: "未知" })[k] ?? k) },
+        { key: "location_tier", label: t("地点"), param: "location_tier", items: bars(data.location_tier, tierLabel, [...locations.map((_, i) => String(i + 1)), "none"]) },
+        { key: "work_mode", label: t("工作方式"), param: "work_mode", items: bars(data.work_mode, (k) => WORK_MODE[k] ?? k) },
+        { key: "salary", label: t("薪资"), param: "salary", note: t("按年薪上限统计，时薪 × 2080。"), items: bars(data.salary, (k) => (k === "unknown" ? t("未列出") : k), SALARY_ORDER) },
+        { key: "score", label: t("匹配分数"), param: "score", note: t("分数是契合度估计，不是录取概率。"), items: bars(data.score, (k) => (k === "none" ? t("未评分（含被排除）") : k), SCORE_ORDER) },
+        { key: "recommendation", label: t("建议"), param: "recommendation", items: bars(data.recommendation, (k) => (k === "none" ? t("未评分") : RECOMMENDATION[k]?.text ?? k), ["apply", "maybe", "skip", "none"]) },
+        { key: "exclusion", label: t("排除原因"), param: "exclusion", empty: t("没有被排除的职位"), items: data.exclusions.map((x) => ({ key: x.code, label: t(x.label), count: x.count })) },
+        { key: "easy_apply", label: "Easy Apply", param: "easy_apply", items: bars(data.easy_apply, (k) => ({ yes: t("有"), no: t("没有"), unknown: t("未知") })[k] ?? k) },
       ]
     : [];
   const dim = dims.find((d) => d.key === dimKey);
@@ -147,45 +148,45 @@ export default function Stats() {
     <div className="stack">
       {error && <p className="error">{error}</p>}
 
-      <section className="row" aria-label="统计筛选" ref={pop.ref} style={{ position: "relative", zIndex: 5 }}>
+      <section className="row" aria-label={t("统计筛选")} ref={pop.ref} style={{ position: "relative", zIndex: 5 }}>
         <Seg<Range>
-          label="时间范围"
+          label={t("时间范围")}
           value={range}
           onChange={pickRange}
           options={[
-            { value: "7", label: "7 天" },
-            { value: "30", label: "30 天" },
-            { value: "all", label: "全部" },
+            { value: "7", label: t("7 天") },
+            { value: "30", label: t("30 天") },
+            { value: "all", label: t("全部") },
           ]}
         />
-        <select value={filters.site ?? ""} onChange={(e) => setF("site", e.target.value)} aria-label="来源网站">
-          <option value="">所有来源</option>
+        <select value={filters.site ?? ""} onChange={(e) => setF("site", e.target.value)} aria-label={t("来源网站")}>
+          <option value="">{t("所有来源")}</option>
           {opts?.sites.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.name}
+              {t(s.name)}
             </option>
           ))}
         </select>
-        <select value={filters.location_tier ?? ""} onChange={(e) => setF("location_tier", e.target.value)} aria-label="地点">
-          <option value="">所有地点</option>
+        <select value={filters.location_tier ?? ""} onChange={(e) => setF("location_tier", e.target.value)} aria-label={t("地点")}>
+          <option value="">{t("所有地点")}</option>
           {locations.map((_, i) => (
             <option key={i} value={String(i + 1)}>
               {tierLabel(String(i + 1))}
             </option>
           ))}
-          <option value="none">不在你的地点清单</option>
+          <option value="none">{t("不在你的地点清单")}</option>
         </select>
-        <select value={filters.work_mode ?? ""} onChange={(e) => setF("work_mode", e.target.value)} aria-label="工作方式">
-          <option value="">所有工作方式</option>
+        <select value={filters.work_mode ?? ""} onChange={(e) => setF("work_mode", e.target.value)} aria-label={t("工作方式")}>
+          <option value="">{t("所有工作方式")}</option>
           {Object.entries(WORK_MODE).map(([k, v]) => (
             <option key={k} value={k}>
               {v}
             </option>
           ))}
         </select>
-        <select value={filters.status ?? ""} onChange={(e) => setF("status", e.target.value)} aria-label="投递状态">
-          <option value="">所有状态</option>
-          <option value="none">未标记</option>
+        <select value={filters.status ?? ""} onChange={(e) => setF("status", e.target.value)} aria-label={t("投递状态")}>
+          <option value="">{t("所有状态")}</option>
+          <option value="none">{t("未标记")}</option>
           {Object.entries(APP_STATUS).map(([k, v]) => (
             <option key={k} value={k}>
               {v.text}
@@ -194,14 +195,14 @@ export default function Stats() {
         </select>
         <div className="pop-wrap">
           <button type="button" aria-expanded={pop.open === "more"} onClick={() => pop.toggle("more")}>
-            更多 ▾
+            {t("更多 ▾")}
           </button>
           {pop.open === "more" && (
             <div className="pop" style={{ width: 340 }}>
               <label>
-                公司
+                {t("公司")}
                 <select value={filters.company ?? ""} onChange={(e) => setF("company", e.target.value)}>
-                  <option value="">所有公司</option>
+                  <option value="">{t("所有公司")}</option>
                   {opts?.companies.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.name}
@@ -210,9 +211,9 @@ export default function Stats() {
                 </select>
               </label>
               <label>
-                搜索批次
+                {t("搜索批次")}
                 <select value={filters.run ?? ""} onChange={(e) => setF("run", e.target.value)}>
-                  <option value="">所有批次</option>
+                  <option value="">{t("所有批次")}</option>
                   {opts?.runs.map((r) => (
                     <option key={r} value={r}>
                       {r}
@@ -222,21 +223,21 @@ export default function Stats() {
               </label>
               <div className="row">
                 <label style={{ flex: 1, minWidth: 0 }}>
-                  从
+                  {t("从")}
                   <input type="date" value={filters.date_from ?? ""} onChange={(e) => setF("date_from", e.target.value)} />
                 </label>
                 <label style={{ flex: 1, minWidth: 0 }}>
-                  到
+                  {t("到")}
                   <input type="date" value={filters.date_to ?? ""} onChange={(e) => setF("date_to", e.target.value)} />
                 </label>
               </div>
-              <div className="muted small">日期是职位加入的日期。</div>
+              <div className="muted small">{t("日期是职位加入的日期。")}</div>
             </div>
           )}
         </div>
         {hasFilter && (
           <button type="button" className="link" onClick={clear}>
-            清除筛选
+            {t("清除筛选")}
           </button>
         )}
       </section>
@@ -244,48 +245,48 @@ export default function Stats() {
       {!data && !error && <Loading className="card" />}
       {data && (
         <>
-          <section className="card flush" aria-label="投递漏斗">
+          <section className="card flush" aria-label={t("投递漏斗")}>
             <div className="funnel">
               {data.funnel.map((f, i) => {
                 const prev = data.funnel[i - 1];
-                const title = `漏斗：${f.label}`;
+                const title = t("漏斗：{label}", { label: t(f.label) });
                 return (
                   <button type="button" key={f.stage} className={`funnel-item${drill?.title === title ? " on" : ""}`} onClick={() => setDrill({ title, dim: "stage", value: f.stage })}>
-                    <span className="muted">{f.label}</span>
+                    <span className="muted">{t(f.label)}</span>
                     <b>{f.count}</b>
                     <span className="funnel-track" style={{ display: "block" }}>
                       <span className="funnel-fill" style={{ width: `${Math.max(f.count ? 2 : 0, (f.count / maxFound) * 100)}%` }} />
                     </span>
-                    <span className="muted small">{prev ? `占${prev.label} ${prev.count ? Math.round((f.count / prev.count) * 100) : 0}%` : "全部职位"}</span>
+                    <span className="muted small">{prev ? t("占{label} {pct}%", { label: t(prev.label), pct: prev.count ? Math.round((f.count / prev.count) * 100) : 0 }) : t("全部职位")}</span>
                   </button>
                 );
               })}
               <div className="funnel-rate">
-                <div className="muted">回复率</div>
+                <div className="muted">{t("回复率")}</div>
                 <div className="stat-big" style={{ color: "var(--accent-text)" }}>
                   {replyRate == null ? "—" : `${Math.round((replyRate as number) * 100)}%`}
                 </div>
                 <div className="muted small" style={{ marginTop: 14 }}>
-                  面试、Offer、被拒 ÷ 已投递
+                  {t("面试、Offer、被拒 ÷ 已投递")}
                 </div>
               </div>
             </div>
             <div className="backlog">
-              <b>待处理</b>
-              <button type="button" className="link" disabled={!data.backlog.saved_not_applied} onClick={() => setDrill({ title: "待处理：收藏了还没投", dim: "backlog", value: "saved_not_applied" })}>
-                {data.backlog.saved_not_applied} 个收藏了还没投 →
+              <b>{t("待处理")}</b>
+              <button type="button" className="link" disabled={!data.backlog.saved_not_applied} onClick={() => setDrill({ title: t("待处理：收藏了还没投"), dim: "backlog", value: "saved_not_applied" })}>
+                {t("{n} 个收藏了还没投 →", { n: data.backlog.saved_not_applied })}
               </button>
-              <button type="button" className="link" disabled={!data.backlog.applied_no_update} onClick={() => setDrill({ title: `待处理：投递后 ${data.backlog.stale_days} 天没更新`, dim: "backlog", value: "applied_no_update" })}>
-                {data.backlog.applied_no_update} 个投递超过 {data.backlog.stale_days} 天没更新 →
+              <button type="button" className="link" disabled={!data.backlog.applied_no_update} onClick={() => setDrill({ title: t("待处理：投递后 {n} 天没更新", { n: data.backlog.stale_days }), dim: "backlog", value: "applied_no_update" })}>
+                {t("{n} 个投递超过 {d} 天没更新 →", { n: data.backlog.applied_no_update, d: data.backlog.stale_days })}
               </button>
-              <button type="button" className="link" disabled={!data.totals.dismissed} onClick={() => setDrill({ title: "已删除的职位", dim: "application_status", value: "dismissed" })}>
-                {data.totals.dismissed} 个已删除 →
+              <button type="button" className="link" disabled={!data.totals.dismissed} onClick={() => setDrill({ title: t("已删除的职位"), dim: "application_status", value: "dismissed" })}>
+                {t("{n} 个已删除 →", { n: data.totals.dismissed })}
               </button>
             </div>
           </section>
 
-          <section className="card" aria-label="维度分析" style={{ paddingTop: 4 }}>
-            <div className="tabs" role="tablist" aria-label="分析维度">
+          <section className="card" aria-label={t("维度分析")} style={{ paddingTop: 4 }}>
+            <div className="tabs" role="tablist" aria-label={t("分析维度")}>
               {dims.map((d) => (
                 <button
                   key={d.key}
@@ -305,7 +306,7 @@ export default function Stats() {
             <div className="analysis">
               <div>
                 {dim && dim.items.every((b) => b.count === 0) ? (
-                  <p className="muted">{dim.empty ?? "还没有资料。"}</p>
+                  <p className="muted">{dim.empty ?? t("还没有资料。")}</p>
                 ) : (
                   dim && (
                     <BarList
@@ -317,27 +318,27 @@ export default function Stats() {
                 )}
                 {dim?.note && <p className="muted small" style={{ margin: 8 }}>{dim.note}</p>}
               </div>
-              <div className="drill">{shown ? <DrillDown filters={filters} {...shown} /> : <p className="muted">点左边的长条查看对应的职位。</p>}</div>
+              <div className="drill">{shown ? <DrillDown filters={filters} {...shown} /> : <p className="muted">{t("点左边的长条查看对应的职位。")}</p>}</div>
             </div>
           </section>
 
           <div className="two-col">
-            <section className="card" aria-label="投递趋势">
+            <section className="card" aria-label={t("投递趋势")}>
               <div className="row between" style={{ marginBottom: 8 }}>
                 <h2 className="sub-title" style={{ margin: 0, fontSize: 16 }}>
-                  投递趋势
+                  {t("投递趋势")}
                 </h2>
                 <div className="row">
                   <button type="button" className="link" onClick={() => setTable(!table)}>
-                    {table ? "查看图表" : "查看表格"}
+                    {table ? t("查看图表") : t("查看表格")}
                   </button>
                   <Seg
-                    label="趋势单位"
+                    label={t("趋势单位")}
                     value={unit}
                     onChange={setUnit}
                     options={[
-                      { value: "week", label: "每周" },
-                      { value: "day", label: "每日" },
+                      { value: "week", label: t("每周") },
+                      { value: "day", label: t("每日") },
                     ]}
                   />
                 </div>
@@ -345,28 +346,28 @@ export default function Stats() {
               <Trend points={data.trend[unit]} unit={unit} table={table} />
             </section>
 
-            <section className="card" aria-label="来源效果">
+            <section className="card" aria-label={t("来源效果")}>
               <h2 className="sub-title" style={{ fontSize: 16, lineHeight: "44px", margin: 0 }}>
-                来源效果
+                {t("来源效果")}
               </h2>
               {data.sources.length === 0 ? (
-                <p className="muted">还没有资料。</p>
+                <p className="muted">{t("还没有资料。")}</p>
               ) : (
                 <div className="scroll-x">
                   <table>
                     <thead>
                       <tr>
-                        <th>网站</th>
-                        <th className="num">找到</th>
-                        <th className="num">保留</th>
-                        <th className="num">投递</th>
-                        <th className="num">面试</th>
+                        <th>{t("网站")}</th>
+                        <th className="num">{t("找到")}</th>
+                        <th className="num">{t("保留")}</th>
+                        <th className="num">{t("投递")}</th>
+                        <th className="num">{t("面试")}</th>
                       </tr>
                     </thead>
                     <tbody>
                       {data.sources.map((s) => (
-                        <tr key={s.site} className="clickable" onClick={() => s.site !== "(无来源链接)" && setDrill({ title: `来源：${s.name}`, dim: "site", value: s.site })}>
-                          <td>{s.name === "(无来源链接)" ? "手动贴的 JD（无网址）" : s.name}</td>
+                        <tr key={s.site} className="clickable" onClick={() => s.site !== "(无来源链接)" && setDrill({ title: t("来源：{name}", { name: s.name }), dim: "site", value: s.site })}>
+                          <td>{s.name === "(无来源链接)" ? t("手动贴的 JD（无网址）") : s.name}</td>
                           <td className="num">{s.found}</td>
                           <td className="num">{s.kept}</td>
                           <td className="num">{s.applied}</td>
@@ -394,7 +395,7 @@ function BarList({ items, activeKey, onPick }: { items: Bar[]; activeKey?: strin
       {items.map((b) => {
         const share = total ? `${Math.round((b.count / total) * 100)}%` : "";
         return (
-          <button type="button" key={b.key} className={`barrow${activeKey === b.key ? " on" : ""}`} onClick={() => onPick(b)} disabled={b.count === 0} title={`${b.label}：${b.count}（${share}），点击查看职位`}>
+          <button type="button" key={b.key} className={`barrow${activeKey === b.key ? " on" : ""}`} onClick={() => onPick(b)} disabled={b.count === 0} title={t("{label}：{n}（{share}），点击查看职位", { label: b.label, n: b.count, share })}>
             <span>{b.label}</span>
             <span className="bartrack">
               <span className="bar" style={{ width: `${(b.count / max) * 100}%` }} />
@@ -410,7 +411,7 @@ function BarList({ items, activeKey, onPick }: { items: Bar[]; activeKey?: strin
 }
 
 function Trend({ points, unit, table }: { points: { date: string; applied: number; interviewing: number; other: number }[]; unit: string; table: boolean }) {
-  if (points.length === 0) return <p className="muted">还没有状态变更记录。在职位上标记「已投递」后会出现在这里。</p>;
+  if (points.length === 0) return <p className="muted">{t("还没有状态变更记录。在职位上标记「已投递」后会出现在这里。")}</p>;
   const max = Math.max(...points.map((p) => p.applied), 1);
   if (table)
     return (
@@ -418,10 +419,10 @@ function Trend({ points, unit, table }: { points: { date: string; applied: numbe
         <table>
           <thead>
             <tr>
-              <th>{unit === "week" ? "周（起始日）" : "日期"}</th>
-              <th className="num">投递</th>
-              <th className="num">面试</th>
-              <th className="num">其他</th>
+              <th>{unit === "week" ? t("周（起始日）") : t("日期")}</th>
+              <th className="num">{t("投递")}</th>
+              <th className="num">{t("面试")}</th>
+              <th className="num">{t("其他")}</th>
             </tr>
           </thead>
           <tbody>
@@ -439,9 +440,9 @@ function Trend({ points, unit, table }: { points: { date: string; applied: numbe
     );
   return (
     <>
-      <div className="trend" role="img" aria-label={`${unit === "week" ? "每周" : "每日"}投递数，最高 ${max}`}>
+      <div className="trend" role="img" aria-label={t(unit === "week" ? "每周投递数，最高 {max}" : "每日投递数，最高 {max}", { max })}>
         {points.map((p) => (
-          <div key={p.date} className="trendcol" title={`${p.date}${unit === "week" ? " 那一周" : ""}：投递 ${p.applied}、进入面试 ${p.interviewing}、其他状态变更 ${p.other}`}>
+          <div key={p.date} className="trendcol" title={`${p.date}${unit === "week" ? t(" 那一周") : ""}${t("：投递 {a}、进入面试 {b}、其他状态变更 {c}", { a: p.applied, b: p.interviewing, c: p.other })}`}>
             {p.applied > 0 && points.length <= 31 && <span className="trendnum">{p.applied}</span>}
             <span className="trendbar" style={{ height: `${(p.applied / max) * 82}%` }} />
           </div>
@@ -468,7 +469,7 @@ function DrillDown({ filters, title, dim, value }: { filters: Filters } & Drill)
         {title}（{jobs?.length ?? "…"}）
       </h2>
       {!jobs && <Loading />}
-      {jobs && jobs.length === 0 && <p className="muted">没有职位。</p>}
+      {jobs && jobs.length === 0 && <p className="muted">{t("没有职位。")}</p>}
       <div style={{ maxHeight: 340, overflow: "auto" }}>
         {jobs?.map((j) => (
           <div className="drill-row" key={j.id}>

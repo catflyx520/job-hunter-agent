@@ -1,4 +1,5 @@
 // 后端 API 的型别与呼叫。型别对应 backend/app/schemas。
+import { lang } from "./i18n";
 
 export type ProviderKind = "openai" | "anthropic" | "openai_compatible" | "ollama" | "claude_cli" | "codex_cli";
 
@@ -171,7 +172,8 @@ export interface FactTemplate {
 export class ApiError extends Error {}
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const init: RequestInit = { method, headers: {} };
+  // 后端产生的说明、错误讯息、模型输出都跟着介面语言
+  const init: RequestInit = { method, headers: { "X-UI-Lang": lang } };
   if (body instanceof FormData) {
     init.body = body;
   } else if (body !== undefined) {

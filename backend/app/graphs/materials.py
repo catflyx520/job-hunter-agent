@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.i18n import output_language, tr
 from app.llm.base import ImageInput, LLMProvider, Message
 from app.models import Fact, Resume
 from app.rag.retrieve import Evidence, retrieve
@@ -77,7 +78,7 @@ Hard rules:
   cropped or conflicting, list what needs confirmation instead of guessing.
 - Style: natural, specific, concise. No clichés like "I am writing to express my interest".
 - needs_confirmation: for each placeholder, set item to exactly the placeholder name (e.g. "start date");
-  write every "why" in Simplified Chinese. Do not list the same missing fact twice."""
+  write every "why" in {OUTPUT_LANGUAGE}. Do not list the same missing fact twice."""
 
 KIND_GUIDE = {
     "cover_letter": "Write a cover letter of about 200-300 words (3-4 short paragraphs) unless the requirements say otherwise. "
@@ -120,22 +121,32 @@ def verify_draft(
     for c in citations:
         if not c["supported"]:
             needs.append(
-                {"item": f"「{c['sentence'][:80]}」", "why": "这句话没有对应的履历证据或已确认事实，请确认是否属实。"}
+                {
+                    "item": f"「{c['sentence'][:80]}」",
+                    "why": tr("这句话没有对应的履历证据或已确认事实，请确认是否属实。"),
+                }
             )
     if bad_refs:
-        needs.append({"item": "引用", "why": f"模型引用了 {bad_refs} 个不存在的证据或事实，已删除。"})
+        needs.append(
+            {"item": tr("引用"), "why": tr("模型引用了 {bad_refs} 个不存在的证据或事实，已删除。", bad_refs=bad_refs)}
+        )
 
     known = _numbers(" ".join(e.text for e in evidence) + " " + " ".join(f.value for f in facts) + " " + reference)
     for num in sorted(_numbers(draft.text) - known):
         if len(num) <= 1 and num.isdigit():
             continue  # 单个数字（例如段落编号、"3 years" 的 3 以外的小数字）常见且无害；年资另由引用检查
-        needs.append({"item": f"数字「{num}」", "why": "草稿里的这个数字在履历、事实库、JD 或问题里都找不到来源。"})
+        needs.append(
+            {
+                "item": tr("数字「{num}」", num=num),
+                "why": tr("草稿里的这个数字在履历、事实库、JD 或问题里都找不到来源。"),
+            }
+        )
 
     listed = " ".join(n["item"] for n in needs).lower()
-    for ph in re.findall(r"\[NEEDS CONFIRMATION:\s*([^\]]+)\]|\[需要确认[:：]\s*([^\]]+)\]", draft.text):
+    for ph in re.findall(("\\[NEEDS CONFIRMATION:\\s*([^\\]]+)\\]|\\[需要确认[:：]\\s*([^\\]]+)\\]"), draft.text):
         name = (ph[0] or ph[1]).strip()
         if name.lower() not in listed:
-            needs.append({"item": name, "why": "草稿中留了占位符，需要你提供。"})
+            needs.append({"item": name, "why": tr("草稿中留了占位符，需要你提供。")})
     return citations, needs, sorted(used)
 
 
@@ -163,7 +174,10 @@ def generate_draft(provider: LLMProvider, state: MaterialState) -> Draft:
     parts.append(f"Resume evidence (cite by ID):\n{ev}")
     parts.append(f"Confirmed personal facts (cite by key):\n{facts}")
     result = provider.generate(
-        [Message("system", SYSTEM), Message("user", "\n\n".join(parts))],
+        [
+            Message("system", SYSTEM.replace("{OUTPUT_LANGUAGE}", output_language())),
+            Message("user", "\n\n".join(parts)),
+        ],
         schema=Draft,
         images=state.get("images") or None,
     )

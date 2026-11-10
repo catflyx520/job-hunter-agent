@@ -6,6 +6,7 @@ import hashlib
 import math
 from collections.abc import Callable
 
+from app.core.i18n import tr
 from app.llm.base import Capabilities, ImageInput, LLMProvider, Message
 
 Responder = Callable[[list[Message], dict | None], str]
@@ -32,7 +33,7 @@ class FakeProvider(LLMProvider):
         if callable(self._responses):
             return self._responses(messages, json_mode), {}
         if not self._responses:
-            raise AssertionError("FakeProvider 没有剩余的回应")
+            raise AssertionError(tr("FakeProvider 没有剩余的回应"))
         return self._responses.pop(0), {}
 
     def _complete_search(self, messages, json_mode):

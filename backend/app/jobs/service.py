@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.fetch import fetch_page
+from app.core.i18n import tr
 from app.jobs.exclusion import check_exclusions, closed_posting
 from app.jobs.extract import JobExtraction, extract_job
 from app.jobs.match import score_match
@@ -41,7 +42,7 @@ def load_preferences(db: Session) -> tuple[JobPreferences, int]:
 def upsert_company(db: Session, name: str, website: str = "", staffing: bool = False) -> Company:
     norm = normalize_company(name)
     if not norm:
-        raise IngestError("JD 里找不到公司名称，请在「公司」栏填写。")
+        raise IngestError(tr("JD 里找不到公司名称，请在「公司」栏填写。"))
     company = db.scalar(select(Company).where(Company.normalized_name == norm))
     if company is None:
         company = Company(display_name=name.strip(), normalized_name=norm, is_staffing_agency=staffing)
@@ -62,12 +63,12 @@ def ingest(
     url = (url or "").strip() or None
     jd_text = (jd_text or "").strip() or None
     if not url and not jd_text:
-        raise IngestError("请贴上职位网址或 JD。")
+        raise IngestError(tr("请贴上职位网址或 JD。"))
 
     if jd_text:
         verification, status, verified_at = "pasted", "unverified", None
         if url:
-            notes.append("使用你贴上的 JD；网址只记录为来源，未重新读取。")
+            notes.append(tr("使用你贴上的 JD；网址只记录为来源，未重新读取。"))
     else:
         page = fetch_page(url)  # FetchError 由 API 层转成讯息
         jd_text, url, links = page.text, page.url, page.links
@@ -78,7 +79,7 @@ def ingest(
             else ("ats_api" if site in ("greenhouse", "lever", "ashby") else "employer_site")
         )
         status, verified_at = "active", page.retrieved_at
-        notes.append("已读取公开网页；网页文字可能包含 JD 以外的内容，请检查抽取结果。")
+        notes.append(tr("已读取公开网页；网页文字可能包含 JD 以外的内容，请检查抽取结果。"))
 
     ex, evidence_notes = extract_job(
         provider_for_task(db, "job_extract"), jd_text, {"company": company_hint, "title": title_hint}
@@ -99,7 +100,7 @@ def ingest(
         company_hint=company_hint,
     )
     if not created:
-        notes.append("这个职位之前已经存过（同公司、职称、地点或职位编号），已用最新内容更新。")
+        notes.append(tr("这个职位之前已经存过（同公司、职称、地点或职位编号），已用最新内容更新。"))
     refresh_company(db, job.company)
     return IngestResult(job=job, notes=notes, created=created)
 
@@ -131,7 +132,7 @@ def save_job(
 ) -> tuple[Job, bool]:
     """把抽取结果存成职位（依 canonical_key 去重），并记下来源链接。回传 (职位, 是否新建)。"""
     if not ex.title.strip():
-        raise IngestError("JD 里找不到职称，请在「职称」栏填写。")
+        raise IngestError(tr("JD 里找不到职称，请在「职称」栏填写。"))
     now = datetime.now(UTC)
     company = upsert_company(db, ex.company or company_hint, ex.company_website, ex.is_staffing_agency)
     for link in [*(origin.links or []), ex.apply_url, origin.url or ""]:
@@ -202,7 +203,7 @@ def add_source(
 def match_job(db: Session, job: Job) -> JobMatch:
     resume = db.scalar(select(Resume).where(Resume.is_active.is_(True)))
     if resume is None:
-        raise IngestError("请先上传并设定一份使用中的履历。")
+        raise IngestError(tr("请先上传并设定一份使用中的履历。"))
     prefs, version = load_preferences(db)
     exclusion = check_exclusions(job, prefs)
     ex = job.extracted or {}
@@ -212,8 +213,10 @@ def match_job(db: Session, job: Job) -> JobMatch:
     if not retrieval.items:
         # 没有任何履历内容可引用时，模型只能给职位 / 技术 / 年资 0 分，分数没有意义，宁可不评
         raise IngestError(
-            f"使用中的履历「{resume.label}」没有结构化出经历或专案，无法评分。"
-            "请到「履历内容」检查后确认，或在「版本管理」按「重新结构化」。"
+            tr(
+                "使用中的履历「{label}」没有结构化出经历或专案，无法评分。请到「履历内容」检查后确认，或在「版本管理」按「重新结构化」。",
+                label=resume.label,
+            )
         )
     result = score_match(provider_for_task(db, "match_score"), job, prefs, retrieval.items, exclusion)
     if retrieval.note:

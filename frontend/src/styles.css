@@ -289,3 +289,6 @@ button .spinner { margin-right: 6px; }
 .badge.applied-tag { background: var(--accent); color: #fff; font-weight: 700; }
 .badge.applied-tag.fail { background: var(--fail); }
 .badge.applied-tag.warn { background: var(--warn); }
+.lang-switch { margin-left: 12px; border: 1px solid #fff; background: transparent; padding: 2px; }
+.lang-switch button { min-height: 30px; padding: 0 10px; color: #fff; background: transparent; border: 0; font-size: 13px; }
+.lang-switch button.on { background: #fff; color: #0a0a0a; }

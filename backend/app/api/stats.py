@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.api.jobs import _summary
 from app.core.db import get_db
+from app.core.i18n import tr
 from app.jobs.exclusion import REASON_LABELS
 from app.models import Job, JobSite, SearchRun
 from app.schemas.job import JobSummary
@@ -257,7 +258,7 @@ def drill_down(
 ):
     pred = DIMENSIONS.get(dim)
     if pred is None:
-        raise HTTPException(422, "不支援的维度")
+        raise HTTPException(422, tr("不支援的维度"))
     ids = [r["job_id"] for r in _rows(db, f) if pred(r, value)][:500]
     jobs = db.scalars(select(Job).where(Job.id.in_(ids))).all() if ids else []
     order = {i: n for n, i in enumerate(ids)}

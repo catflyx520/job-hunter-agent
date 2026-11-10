@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_sessionmaker
 from app.core.fetch import FetchError, fetch_page
+from app.core.i18n import tr
 from app.jobs.exclusion import check_exclusions
 from app.jobs.extract import extract_job
 from app.jobs.normalize import site_for_url
@@ -85,14 +86,16 @@ def process_lead(run_id: str, lead: Lead, prefs: JobPreferences, sponsor: bool) 
                 add_source(db, job, lead.url, lead.site_id, lead.site_job_id, run_id)
                 db.commit()
             if _seen_before(db, job.id, run_id):
-                return LeadResult(lead.site_id, lead.url, "duplicate", str(job.id), message="已在之前的批次出现")
+                return LeadResult(lead.site_id, lead.url, "duplicate", str(job.id), message=tr("已在之前的批次出现"))
             try:
                 result = _evaluate(db, job, lead, prefs, sponsor)
                 db.commit()
                 return result
             except LLMError as exc:
                 db.rollback()
-                return LeadResult(lead.site_id, lead.url, "failed", str(job.id), message=f"匹配评分失败：{exc}")
+                return LeadResult(
+                    lead.site_id, lead.url, "failed", str(job.id), message=tr("匹配评分失败：{exc}", exc=exc)
+                )
 
     # 2. 取得 JD：ATS API 已经给了；否则用安全读取去读职位页
     links: list[str] = []
@@ -115,9 +118,9 @@ def process_lead(run_id: str, lead: Lead, prefs: JobPreferences, sponsor: bool) 
         try:
             ex, _ = extract_job(provider_for_task(db, "job_extract"), jd_text, hints)
         except LLMError as exc:
-            return LeadResult(lead.site_id, lead.url, "failed", message=f"职位资料抽取失败：{exc}")
+            return LeadResult(lead.site_id, lead.url, "failed", message=tr("职位资料抽取失败：{exc}", exc=exc))
         if not ex.title.strip() or not (ex.company or lead.company).strip():
-            return LeadResult(lead.site_id, lead.url, "failed", message="页面里找不到职称或公司名称")
+            return LeadResult(lead.site_id, lead.url, "failed", message=tr("页面里找不到职称或公司名称"))
         if not ex.posted_text and lead.posted_text:
             ex.posted_text = lead.posted_text
 
@@ -142,7 +145,7 @@ def process_lead(run_id: str, lead: Lead, prefs: JobPreferences, sponsor: bool) 
                 job, _ = save_job(db, ex, jd_text, origin, company_hint=lead.company)
             db.commit()
         if _seen_before(db, job.id, run_id):
-            return LeadResult(lead.site_id, lead.url, "duplicate", str(job.id), message="已在之前的批次出现")
+            return LeadResult(lead.site_id, lead.url, "duplicate", str(job.id), message=tr("已在之前的批次出现"))
 
         # 5. 排除与评分
         try:
@@ -151,4 +154,4 @@ def process_lead(run_id: str, lead: Lead, prefs: JobPreferences, sponsor: bool) 
             return result
         except LLMError as exc:
             db.rollback()
-            return LeadResult(lead.site_id, lead.url, "failed", str(job.id), message=f"匹配评分失败：{exc}")
+            return LeadResult(lead.site_id, lead.url, "failed", str(job.id), message=tr("匹配评分失败：{exc}", exc=exc))

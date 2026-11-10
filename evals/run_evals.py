@@ -34,6 +34,7 @@ sys.path.insert(0, str(ROOT / "datasets"))
 
 from cases import CASES, ENTITY_PAIRS, PERSONAS, Case  # noqa: E402
 
+from app.core.i18n import set_lang  # noqa: E402
 from app.graphs.materials import Citation, Draft, FactItem, NeedItem, generate_draft, verify_draft  # noqa: E402
 from app.jobs.exclusion import check_exclusions  # noqa: E402
 from app.jobs.extract import JobExtraction, extract_job, verify_evidence  # noqa: E402
@@ -151,6 +152,7 @@ def program_entities(failures: list[str]) -> dict[str, float]:
 
 
 def program_truth_check(failures: list[str]) -> dict[str, float]:
+    set_lang("zh")  # 下面用中文讯息判断是哪一种问题（介面预设英文）
     ev = evidence_of("jordan")
     e0 = ev[1].id  # 第一段经历
     facts = facts_of("jordan")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from app.core.i18n import tr
 from app.llm.base import LLMProvider, Message
 from app.schemas.resume import ParsedResume
 
@@ -37,9 +38,8 @@ def empty_structure_warning(parsed: ParsedResume, raw_text: str) -> str | None:
     """原文明明有经历标题，结构化结果却没有任何经历：多半是模型漏抓，提醒用户重新结构化。"""
     if parsed.experience or not EXPERIENCE_HEADING.search(raw_text):
         return None
-    return (
-        "结构化结果里没有任何工作经历，但原文有 Experience 段落，可能是模型漏抓。"
-        "请在「管理」里点「重新结构化」（可在设置页为「履历解析」换一个模型），或手动补上。"
+    return tr(
+        "结构化结果里没有任何工作经历，但原文有 Experience 段落，可能是模型漏抓。请在「管理」里点「重新结构化」（可在设置页为「履历解析」换一个模型），或手动补上。"
     )
 
 

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import operator
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -19,6 +20,7 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.core.db import get_sessionmaker
 from app.core.fetch import FetchError
+from app.core.i18n import tr
 from app.llm.base import LLMError
 from app.models import Company, SearchRun, SearchRunJob, SearchRunSite
 from app.schemas.profile import JobPreferences
@@ -55,7 +57,7 @@ def fan_out(state: SearchState):
 def discover_site(site: dict[str, Any], prefs: JobPreferences) -> SiteReport:
     sid, limit = site["id"], site["max_results"]
     if site["access_method"] == "paste_only":
-        return SiteReport(sid, "skipped", message="这个网站需要登录，只支援贴网址 / JD。")
+        return SiteReport(sid, "skipped", message=tr("这个网站需要登录，只支援贴网址 / JD。"))
     with get_sessionmaker()() as db:
         if site["access_method"] == "ats_api":
             boards = db.scalars(
@@ -64,14 +66,14 @@ def discover_site(site: dict[str, Any], prefs: JobPreferences) -> SiteReport:
             targets = [(c.ats_board_token, c.display_name) for c in boards]
         else:
             if sid not in SITE_RULES:
-                return SiteReport(sid, "skipped", message="这个网站还没有搜索规则。")
+                return SiteReport(sid, "skipped", message=tr("这个网站还没有搜索规则。"))
             searcher, label = get_searcher(db)
     if site["access_method"] == "ats_api":
         if not targets:
             return SiteReport(
                 sid,
                 "skipped",
-                message="还没有已知的公司 board：读过含此 ATS 链接的职位页，或在页面手动加入后才会搜索。",
+                message=tr("还没有已知的公司 board：读过含此 ATS 链接的职位页，或在页面手动加入后才会搜索。"),
             )
         leads: list[Lead] = []
         failed = []
@@ -81,9 +83,14 @@ def discover_site(site: dict[str, Any], prefs: JobPreferences) -> SiteReport:
             except FetchError as exc:
                 failed.append(f"{token}（{str(exc).split('。')[0]}）")
         picked = filter_leads(leads, prefs, limit)
-        msg = f"查了 {len(targets)} 个公司 board，共 {len(leads)} 个职位，职称与地点相符 {len(picked)} 个。"
+        msg = tr(
+            "查了 {v} 个公司 board，共 {v2} 个职位，职称与地点相符 {v3} 个。",
+            v=len(targets),
+            v2=len(leads),
+            v3=len(picked),
+        )
         if failed:
-            msg += f" 读取失败：{'、'.join(failed[:5])}。"
+            msg += tr(" 读取失败：{v}。", v="、".join(failed[:5]))
         status = "failed" if len(failed) == len(targets) else ("partial" if failed else "ok")
         return SiteReport(sid, status, picked, msg)
     if searcher is None:
@@ -91,20 +98,22 @@ def discover_site(site: dict[str, Any], prefs: JobPreferences) -> SiteReport:
     try:
         report = searcher.search_site(sid, site["name"], prefs, limit)
     except LLMError as exc:
-        return SiteReport(sid, "failed", message=f"搜索失败：{exc}")
+        return SiteReport(sid, "failed", message=tr("搜索失败：{exc}", exc=exc))
     return report
 
 
 def discover(task: SiteTask) -> dict:
     run_id, site = task["run_id"], task["site"]
     if progress.is_cancelled(run_id):
-        report = SiteReport(site["id"], "skipped", message="搜索已取消。")
+        report = SiteReport(site["id"], "skipped", message=tr("搜索已取消。"))
     else:
         prefs = JobPreferences.model_validate(task["params"]["preferences"])
         try:
             report = discover_site(site, prefs)
         except Exception as exc:  # noqa: BLE001  单一网站的意外错误不影响其他网站
-            report = SiteReport(site["id"], "failed", message=f"搜索时发生错误（{type(exc).__name__}）。")
+            report = SiteReport(
+                site["id"], "failed", message=tr("搜索时发生错误（{__name__}）。", __name__=type(exc).__name__)
+            )
     progress.site_done(run_id, site["id"], report.status, len(report.leads))
     return {"reports": [report]}
 
@@ -126,23 +135,29 @@ def process(state: SearchState) -> dict:
                 continue
             seen.add(key)
             if len(queue) >= params["total_limit"]:
-                results.append(LeadResult(lead.site_id, lead.url, "over_limit", message="超过每次搜索的总上限"))
+                results.append(LeadResult(lead.site_id, lead.url, "over_limit", message=tr("超过每次搜索的总上限")))
             else:
                 queue.append(lead)
     progress.start_processing(run_id, len(queue))
 
     def work(lead: Lead) -> LeadResult:
         if progress.is_cancelled(run_id):
-            return LeadResult(lead.site_id, lead.url, "cancelled", message="搜索已取消")
+            return LeadResult(lead.site_id, lead.url, "cancelled", message=tr("搜索已取消"))
         try:
             res = process_lead(run_id, lead, prefs, params.get("sponsor_history", True))
         except Exception as exc:  # noqa: BLE001
-            res = LeadResult(lead.site_id, lead.url, "failed", message=f"处理时发生错误（{type(exc).__name__}）")
+            res = LeadResult(
+                lead.site_id,
+                lead.url,
+                "failed",
+                message=tr("处理时发生错误（{__name__}）", __name__=type(exc).__name__),
+            )
         progress.lead_done(run_id, res.outcome)
         return res
 
     with ThreadPoolExecutor(max_workers=max(1, get_settings().cli_max_concurrency)) as pool:
-        results += list(pool.map(work, queue))
+        # 每个工作执行绪都带上目前的 context（介面语言）
+        results += list(pool.map(lambda lead: contextvars.copy_context().run(work, lead), queue))
     return {"results": results}
 
 
@@ -157,20 +172,20 @@ def site_summary(report: SiteReport, results: list[LeadResult], kept_jobs: set[s
     kept = len({r.job_id for r in mine if r.outcome == "kept" and r.job_id in kept_jobs})
     parts = [report.message] if report.message else []
     if mine:
-        found = f"找到 {len(report.leads)} 个职位页"
-        detail = [f"保留 {kept}"]
-        for key, label in (("excluded", "排除"), ("duplicate", "之前批次已有"), ("blocked", "读不到（登录/验证页）"),
-                           ("expired", "已下架"), ("failed", "失败"), ("over_limit", "超过总上限未处理"),
-                           ("cancelled", "取消")):  # fmt: skip
+        found = tr("找到 {v} 个职位页", v=len(report.leads))
+        detail = [tr("保留 {kept}", kept=kept)]
+        for key, label in (("excluded", tr("排除")), ("duplicate", tr("之前批次已有")), ("blocked", tr("读不到（登录/验证页）")),
+                           ("expired", tr("已下架")), ("failed", tr("失败")), ("over_limit", tr("超过总上限未处理")),
+                           ("cancelled", tr("取消"))):  # fmt: skip
             if count[key]:
                 detail.append(f"{label} {count[key]}")
         parts.append(f"{found}：{'、'.join(detail)}。")
         fails = [r for r in mine if r.outcome in ("blocked", "failed", "expired") and r.message]
         if fails:
-            parts.append(f"例如：{fails[0].message}。")
+            parts.append(tr("例如：{message}。", message=fails[0].message))
         unread_urls = [r.url for r in mine if r.outcome in ("blocked", "failed")]
         if unread_urls:
-            parts.append("读不到的职位页（可自行打开后贴 JD）：" + " ".join(unread_urls[:8]))
+            parts.append(tr("读不到的职位页（可自行打开后贴 JD）：") + " ".join(unread_urls[:8]))
     status = report.status
     if status == "ok" and mine:
         unread = count["blocked"] + count["failed"]

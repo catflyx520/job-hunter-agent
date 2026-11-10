@@ -10,6 +10,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ValidationError
 
+from app.core.i18n import tr
+
 
 class LLMError(RuntimeError):
     """可以直接显示给用户的错误（不含金钥、原始 log 或本机路径）。"""
@@ -95,11 +97,14 @@ class LLMProvider(ABC):
     def _complete_search(self, messages: list[Message], json_mode: dict[str, Any] | None) -> tuple[str, dict[str, Any]]:
         """开放「网页搜索」工具的生成（只给 F3 搜索任务用）。子类有支援才覆写。"""
         raise NotSupported(
-            f"{self.kind} 不支援网页搜索，请为「职位搜索」任务换一个模型，或在设置页改用 Tavily / SearXNG。"
+            tr(
+                "{kind} 不支援网页搜索，请为「职位搜索」任务换一个模型，或在设置页改用 Tavily / SearXNG。",
+                kind=self.kind,
+            )
         )
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        raise NotSupported(f"{self.kind} 不支援 embedding，请在设置页为 embedding 任务指定其他模型。")
+        raise NotSupported(tr("{kind} 不支援 embedding，请在设置页为 embedding 任务指定其他模型。", kind=self.kind))
 
     def list_models(self) -> list[str]:
         return [self.model]
@@ -117,10 +122,10 @@ class LLMProvider(ABC):
     ) -> GenerateResult:
         """web_search=True 时开放网页搜索工具（只用于职位搜索），其他任务一律不开放任何工具。"""
         if images and not self._capabilities.vision:
-            raise NotSupported("目前的模型不支援图片，请改贴文字。")
+            raise NotSupported(tr("目前的模型不支援图片，请改贴文字。"))
         if web_search:
             if images:
-                raise NotSupported("网页搜索不接受图片。")
+                raise NotSupported(tr("网页搜索不接受图片。"))
 
             def complete(msgs, imgs, js):
                 return self._complete_search(msgs, js)
@@ -150,7 +155,7 @@ class LLMProvider(ABC):
             try:
                 parsed = schema.model_validate_json(extract_json(text2))
             except ValidationError as exc2:
-                raise LLMError("模型输出格式不符合要求（已重试一次），请重试或换一个模型。") from exc2
+                raise LLMError(tr("模型输出格式不符合要求（已重试一次），请重试或换一个模型。")) from exc2
             return GenerateResult(text2, self.model, parsed, {"first": usage, "retry": usage2})
 
 

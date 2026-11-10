@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { api, CliInfo, CliLogin, CliStatus } from "../api";
+import { t } from "../i18n";
 
 export const CLI_LABEL = { claude: "Claude Code CLI", codex: "Codex CLI" };
 export const CLI_STATE: Record<CliStatus["state"], { text: string; cls: string }> = {
-  signed_in: { text: "已登录", cls: "pass" },
-  signed_out: { text: "未登录", cls: "warn" },
-  invalid: { text: "登录已失效", cls: "fail" },
-  not_installed: { text: "未安装", cls: "fail" },
-  unknown: { text: "状态不明", cls: "warn" },
+  signed_in: { text: t("已登录"), cls: "pass" },
+  signed_out: { text: t("未登录"), cls: "warn" },
+  invalid: { text: t("登录已失效"), cls: "fail" },
+  not_installed: { text: t("未安装"), cls: "fail" },
+  unknown: { text: t("状态不明"), cls: "warn" },
 };
 
 /** 本机 CLI 的登录状态与页面一键登录。refreshKey 改变时重新查询（例如测试连接之后）。 */
@@ -40,10 +41,10 @@ export function useCliLogin(refreshKey: number) {
       return;
     }
     wasRunning.current = true;
-    const t = setInterval(() => {
+    const timer = setInterval(() => {
       api.get<CliLogin | null>("/api/cli/login").then(setLogin).catch(() => undefined);
     }, 1000);
-    return () => clearInterval(t);
+    return () => clearInterval(timer);
   }, [login?.running]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const act = async (fn: () => Promise<void>) => {
@@ -69,7 +70,7 @@ export function useCliLogin(refreshKey: number) {
     act(async () => {
       const r = await api.post<{ status: string }>("/api/cli/login/code", { code });
       setCode("");
-      setMsg(r.status === "submitted" ? "验证码已送出，等待 CLI 确认…" : r.status === "invalid" ? "验证码格式不对。" : "登录程序已结束，请重新开始。");
+      setMsg(r.status === "submitted" ? t("验证码已送出，等待 CLI 确认…") : r.status === "invalid" ? t("验证码格式不对。") : t("登录程序已结束，请重新开始。"));
     });
 
   const cancel = () =>
@@ -97,10 +98,10 @@ export function LoginSteps({ cli, state }: { cli: "claude" | "codex"; state: Cli
   return (
     <div className="conn-extra login">
       <div className="row between">
-        <b>登录 {CLI_LABEL[cli]}</b>
+        <b>{t("登录 {cli}", { cli: CLI_LABEL[cli] })}</b>
         {login.running && (
           <button type="button" className="link" onClick={cancel}>
-            取消登录
+            {t("取消登录")}
           </button>
         )}
       </div>
@@ -109,22 +110,22 @@ export function LoginSteps({ cli, state }: { cli: "claude" | "codex"; state: Cli
         <div>
           1.{" "}
           <a href={login.url} target="_blank" rel="noopener noreferrer">
-            打开 {new URL(login.url).host} 授权页面 ↗
+            {t("打开 {host} 授权页面 ↗", { host: new URL(login.url).host })}
           </a>
         </div>
       )}
       {login.running && cli === "claude" && (
         <div className="row">
-          <span>2. 授权后如果显示验证码，贴到这里</span>
-          <input aria-label="验证码" value={code} onChange={(e) => setCode(e.target.value)} autoComplete="off" style={{ flex: "1 1 200px", minWidth: 0 }} />
+          <span>{t("2. 授权后如果显示验证码，贴到这里")}</span>
+          <input aria-label={t("验证码")} value={code} onChange={(e) => setCode(e.target.value)} autoComplete="off" style={{ flex: "1 1 200px", minWidth: 0 }} />
           <button type="button" className="primary" disabled={!code.trim() || busy} onClick={submit}>
-            送出
+            {t("送出")}
           </button>
         </div>
       )}
-      {login.running && cli === "codex" && <div className="muted">2. 在浏览器完成授权后，这里会自动更新。</div>}
+      {login.running && cli === "codex" && <div className="muted">{t("2. 在浏览器完成授权后，这里会自动更新。")}</div>}
       <details>
-        <summary className="muted">CLI 输出</summary>
+        <summary className="muted">{t("CLI 输出")}</summary>
         <pre className="evidence">{login.output}</pre>
       </details>
     </div>

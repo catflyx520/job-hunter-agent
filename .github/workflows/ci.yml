@@ -38,6 +38,8 @@ jobs:
         run: uv run pytest -q
       - name: Evals (program suite, no model calls)
         run: uv run python ../evals/run_evals.py --suite program
+      - name: Check backend translations
+        run: uv run python ../scripts/check_i18n_backend.py
 
   frontend:
     runs-on: ubuntu-latest
@@ -58,3 +60,5 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build
         run: pnpm build
+      - name: Check translations
+        run: node scripts/check-i18n.mjs

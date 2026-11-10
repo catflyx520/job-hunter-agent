@@ -25,6 +25,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.core.i18n import tr
 from app.jobs.normalize import normalize_company
 from app.models import SponsorDataset, SponsorEmployer, SponsorStat
 
@@ -182,10 +183,13 @@ def aggregate(files: list[SourceFile], log=print, progress=None) -> tuple[dict[s
                 )
         if n == 0:
             raise PipelineError(
-                f"{sf.path.name} 读不到任何雇主资料，可能是档案损坏或格式改变；已停止，不会把它当成「查无」。"
+                tr(
+                    "{name} 读不到任何雇主资料，可能是档案损坏或格式改变；已停止，不会把它当成「查无」。",
+                    name=sf.path.name,
+                )
             )
         rows_read[sf.path.name] = n
-        log(f"{sf.path.name}: 读取 {n} 列")
+        log(tr("{name}: 读取 {n} 列", name=sf.path.name, n=n))
 
     for key, cases in dol_cases.items():
         for r, fname in cases.values():
@@ -261,7 +265,7 @@ def import_summary(db: Session, summary: Path, log=print, progress=None) -> dict
         file_to_id: dict[str, int] = {}
         for d in manifest["datasets"]:
             if d["row_count"] <= 0:
-                raise PipelineError(f"{d['file']} 的列数为 0，拒绝导入。")
+                raise PipelineError(tr("{v} 的列数为 0，拒绝导入。", v=d["file"]))
             existing = db.scalar(select(SponsorDataset).where(SponsorDataset.sha256 == d["sha256"]))
             if existing is None:
                 existing = SponsorDataset(
@@ -314,8 +318,10 @@ def import_summary(db: Session, summary: Path, log=print, progress=None) -> dict
                 stats += 1
             if employers % 5000 == 0:
                 db.flush()
-                log(f"已导入 {employers} 个雇主")
+                log(tr("已导入 {employers} 个雇主", employers=employers))
                 if progress:
-                    progress(stage="importing", employers_done=employers, employers_total=manifest.get("employer_count"))
+                    progress(
+                        stage="importing", employers_done=employers, employers_total=manifest.get("employer_count")
+                    )
         db.flush()
     return {"employers": employers, "stats": stats, "datasets": len(file_to_id)}

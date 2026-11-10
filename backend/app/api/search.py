@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.api.jobs import _summary
 from app.core.db import get_db
+from app.core.i18n import tr
 from app.core.security import encrypt_secret, last4
 from app.jobs.exclusion import REASON_LABELS, check_exclusions
 from app.jobs.service import IngestError, load_preferences, upsert_company
@@ -60,10 +61,10 @@ def list_sites(db: Session = Depends(get_db)):
 def update_site(site_id: str, body: JobSiteUpdate, db: Session = Depends(get_db)):
     site = db.get(JobSite, site_id)
     if site is None or site.id == "manual":
-        raise HTTPException(404, "找不到这个网站")
+        raise HTTPException(404, tr("找不到这个网站"))
     if body.enabled is not None:
         if body.enabled and site.access_method == "paste_only":
-            raise HTTPException(422, f"{site.name} 需要登录，只支援贴网址 / JD，不能自动搜索。")
+            raise HTTPException(422, tr("{name} 需要登录，只支援贴网址 / JD，不能自动搜索。", name=site.name))
         site.enabled = body.enabled
     if body.max_results is not None:
         site.max_results = body.max_results
@@ -108,11 +109,11 @@ def set_integration(body: IntegrationIn, db: Session = Depends(get_db)):
                 row.secret_encrypted = encrypt_secret(key)
                 config["key_last4"] = last4(key)
             elif not row.secret_encrypted:
-                raise HTTPException(422, "请填写 Tavily API key。")
+                raise HTTPException(422, tr("请填写 Tavily API key。"))
         else:
             base = (body.base_url or "").strip().rstrip("/")
             if not base.startswith(("http://", "https://")):
-                raise HTTPException(422, "请填写 SearXNG 的网址，例如 http://localhost:8888")
+                raise HTTPException(422, tr("请填写 SearXNG 的网址，例如 http://localhost:8888"))
             config["base_url"] = base
         row.config = config
         row.enabled = True
@@ -124,7 +125,7 @@ def set_integration(body: IntegrationIn, db: Session = Depends(get_db)):
 def test_integration(db: Session = Depends(get_db)):
     row = active_integration(db)
     if row is None:
-        raise HTTPException(422, "目前使用模型自带搜索，没有外部搜索服务可以测试。")
+        raise HTTPException(422, tr("目前使用模型自带搜索，没有外部搜索服务可以测试。"))
     try:
         found = searcher_from_integration(row)._query("software engineer jobs", "linkedin.com")  # type: ignore[attr-defined]
     except (LLMError, httpx.HTTPError) as exc:
@@ -148,7 +149,7 @@ def add_board(body: AtsBoardIn, db: Session = Depends(get_db)):
     found = ats_from_url(body.url)
     if found is None:
         raise HTTPException(
-            422, "请贴 Greenhouse / Lever / Ashby 的职位板网址，例如 https://job-boards.greenhouse.io/acme"
+            422, tr("请贴 Greenhouse / Lever / Ashby 的职位板网址，例如 https://job-boards.greenhouse.io/acme")
         )
     kind, token = found
     existing = db.scalar(select(Company).where(Company.ats_kind == kind, Company.ats_board_token == token))
@@ -168,7 +169,7 @@ def add_board(body: AtsBoardIn, db: Session = Depends(get_db)):
 def remove_board(company_id: uuid.UUID, db: Session = Depends(get_db)):
     c = db.get(Company, company_id)
     if c is None:
-        raise HTTPException(404, "找不到这家公司")
+        raise HTTPException(404, tr("找不到这家公司"))
     c.ats_board_token, c.ats_kind = None, "unknown"
 
 
@@ -218,7 +219,7 @@ def _run_out(db: Session, run: SearchRun) -> dict:
 def _get_run(db: Session, run_id: str) -> SearchRun:
     run = db.get(SearchRun, run_id)
     if run is None:
-        raise HTTPException(404, "找不到这个搜索批次")
+        raise HTTPException(404, tr("找不到这个搜索批次"))
     return run
 
 
@@ -226,7 +227,7 @@ def _get_run(db: Session, run_id: str) -> SearchRun:
 def start_run(body: SearchRunIn, db: Session = Depends(get_db)):
     busy = db.scalar(select(SearchRun.id).where(SearchRun.status.in_(("pending", "running"))).limit(1))
     if busy and busy in progress.active():
-        raise HTTPException(409, f"批次 {busy} 还在搜索中，请等它完成或取消。")
+        raise HTTPException(409, tr("批次 {busy} 还在搜索中，请等它完成或取消。", busy=busy))
     try:
         run = runner.create_run(db, body.site_ids, body.sponsor_history)
     except runner.RunError as exc:
@@ -286,6 +287,6 @@ def get_run(run_id: str, db: Session = Depends(get_db)):
 def cancel_run(run_id: str, db: Session = Depends(get_db)):
     run = _get_run(db, run_id)
     if run.status not in ("pending", "running"):
-        raise HTTPException(409, "这个批次已经结束。")
+        raise HTTPException(409, tr("这个批次已经结束。"))
     progress.cancel(run_id)
     return SearchRunOut(**_run_out(db, run))

@@ -5,6 +5,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.i18n import tr
 from app.core.security import decrypt_secret
 from app.llm.api_providers import AnthropicProvider, OllamaProvider, OpenAICompatibleProvider, OpenAIProvider
 from app.llm.base import EMBEDDING_KINDS, Capabilities, LLMError, LLMProvider
@@ -46,7 +47,7 @@ def build_provider(row: ProviderRow, model: str | None = None) -> LLMProvider:
             return ClaudeCliProvider(model, capabilities=caps)
         case "codex_cli":
             return CodexCliProvider(model, capabilities=caps)
-    raise LLMError(f"不支援的 provider 类型：{row.kind}")
+    raise LLMError(tr("不支援的 provider 类型：{kind}", kind=row.kind))
 
 
 def provider_for_task(db: Session, task: str) -> LLMProvider:
@@ -54,15 +55,15 @@ def provider_for_task(db: Session, task: str) -> LLMProvider:
     route = db.get(TaskRoute, task)
     if route is not None:
         if not route.provider.enabled:
-            raise NoProviderConfigured(f"「{TASK_LABELS[task]}」指定的模型连接已停用，请到设置页修改。")
+            raise NoProviderConfigured(tr("「{v}」指定的模型连接已停用，请到设置页修改。", v=tr(TASK_LABELS[task])))
         return build_provider(route.provider, route.model)
     if task == "embedding":
         raise NoProviderConfigured(
-            "尚未指定 embedding 模型（需要 OpenAI、OpenAI 兼容端点或 Ollama），请到设置页的任务路由设定。"
+            tr("尚未指定 embedding 模型（需要 OpenAI、OpenAI 兼容端点或 Ollama），请到设置页的任务路由设定。")
         )
     row = db.scalars(select(ProviderRow).where(ProviderRow.enabled.is_(True)).order_by(ProviderRow.created_at)).first()
     if row is None:
-        raise NoProviderConfigured("尚未设定任何模型连接，请先到设置页新增。")
+        raise NoProviderConfigured(tr("尚未设定任何模型连接，请先到设置页新增。"))
     return build_provider(row)
 
 

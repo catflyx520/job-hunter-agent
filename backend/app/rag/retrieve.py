@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from app.core.i18n import tr
 from app.llm.base import LLMError
 from app.llm.registry import provider_for_task
 from app.models import ExperienceChunk, Resume
@@ -55,7 +56,7 @@ def retrieve(db: Session, resume: Resume, query: str, keywords: list[str], limit
     if not chunks:
         parsed = ParsedResume.model_validate(resume.parsed)
         items = [Evidence(f"ref:{c.source_ref}", c.source_ref, c.section, c.text) for c in make_chunks(parsed)]
-        return Retrieval(items[:40], "parsed_resume", "尚未建立检索切块，直接使用结构化履历的内容。")
+        return Retrieval(items[:40], "parsed_resume", tr("尚未建立检索切块，直接使用结构化履历的内容。"))
 
     rankings: list[list[str]] = []
     note = None
@@ -70,7 +71,7 @@ def retrieve(db: Session, resume: Resume, query: str, keywords: list[str], limit
         ).scalars()
         rankings.append([str(r) for r in rows])
     except LLMError as exc:
-        note = f"向量检索不可用（{exc}），只用全文检索。"
+        note = tr("向量检索不可用（{exc}），只用全文检索。", exc=exc)
 
     tsq = _or_query(keywords)
     if tsq:

@@ -7,6 +7,7 @@ from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from app.core.i18n import tr
 from app.llm.base import LLMError, LLMProvider
 from app.resume_review.content import review_content, review_keywords
 from app.resume_review.extract import LayoutInfo
@@ -57,7 +58,7 @@ def build_graph(content_provider: LLMProvider):
                         category="keyword",
                         check="role_keywords",
                         status="warn",
-                        message="没有指定目标职位，未检查关键词覆盖。请在求职需求填写目标职位，或评分时指定。",
+                        message=tr("没有指定目标职位，未检查关键词覆盖。请在求职需求填写目标职位，或评分时指定。"),
                     )
                 ],
             }
@@ -71,7 +72,7 @@ def build_graph(content_provider: LLMProvider):
                         category="keyword",
                         check="role_keywords",
                         status="warn",
-                        message=f"关键词检查失败，未计分：{exc}",
+                        message=tr("关键词检查失败，未计分：{exc}", exc=exc),
                     )
                 ],
             }

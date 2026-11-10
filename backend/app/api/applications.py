@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
+from app.core.i18n import tr
 from app.jobs.exclusion import blacklist_reasons
 from app.models import Application, ApplicationEvent, Job, Material, Preferences, Resume
 from app.schemas.profile import Blacklist, JobPreferences
@@ -59,7 +60,7 @@ class ApplicationIn(BaseModel):
 def _job(db: Session, job_id: uuid.UUID) -> Job:
     job = db.get(Job, job_id)
     if job is None:
-        raise HTTPException(404, "找不到这个职位")
+        raise HTTPException(404, tr("找不到这个职位"))
     return job
 
 
@@ -92,7 +93,7 @@ def set_application(job_id: uuid.UUID, body: ApplicationIn, db: Session = Depend
     if body.cover_letter_id is not None:
         m = db.get(Material, body.cover_letter_id)
         if m is None or m.kind != "cover_letter":
-            raise HTTPException(422, "找不到这份 cover letter")
+            raise HTTPException(422, tr("找不到这份 cover letter"))
     app = _app(db, job_id)
     if app is None:
         app = Application(job_id=job_id, status=body.status)
@@ -117,8 +118,8 @@ def set_application(job_id: uuid.UUID, body: ApplicationIn, db: Session = Depend
 def restore_application(job_id: uuid.UUID, db: Session = Depends(get_db)):
     app = _app(db, job_id)
     if app is None or app.status != "dismissed":
-        raise HTTPException(409, "这个职位没有被删除，不需要还原。")
-    change_status(db, app, app.previous_status or "saved", "还原")
+        raise HTTPException(409, tr("这个职位没有被删除，不需要还原。"))
+    change_status(db, app, app.previous_status or "saved", tr("还原"))
     app.previous_status = None
     db.flush()
     db.refresh(app)
@@ -179,10 +180,12 @@ def add_to_blacklist(body: BlacklistIn, db: Session = Depends(get_db)):
             app = Application(job_id=job.id, status="dismissed", previous_status="saved")
             db.add(app)
             db.flush()
-            db.add(ApplicationEvent(application_id=app.id, from_status=None, to_status="dismissed", note="加入黑名单"))
+            db.add(
+                ApplicationEvent(application_id=app.id, from_status=None, to_status="dismissed", note=tr("加入黑名单"))
+            )
             dismissed += 1
         elif app.status != "dismissed":
-            change_status(db, app, "dismissed", "加入黑名单")
+            change_status(db, app, "dismissed", tr("加入黑名单"))
             dismissed += 1
     db.flush()
     return BlacklistOut(blacklist=prefs.blacklist, dismissed=dismissed, kept_submitted=kept)
