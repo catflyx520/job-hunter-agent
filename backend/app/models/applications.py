@@ -31,7 +31,9 @@ class Application(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False)
     previous_status: Mapped[str | None] = mapped_column(Text)  # dismissed 还原时用
     applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 用户标记「已投递」的时间
-    resume_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("resumes.id"))
+    resume_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("resumes.id", ondelete="SET NULL")
+    )
     cover_letter_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("materials.id", ondelete="SET NULL")
     )

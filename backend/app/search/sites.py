@@ -117,13 +117,13 @@ _GENERIC = {
 
 def role_tokens(prefs: JobPreferences) -> set[str]:
     """目标职位里有辨识度的字（full、stack、backend、react…），给 ATS 职称过滤用。"""
-    words = {w for r in prefs.target_roles for w in re.findall(r"[a-z0-9#+.]+", r.lower().replace("-", " "))}
+    words = {w for r in prefs.active_roles for w in re.findall(r"[a-z0-9#+.]+", r.lower().replace("-", " "))}
     return {w for w in words if w not in _GENERIC and len(w) > 1}
 
 
 def title_matches(title: str, prefs: JobPreferences) -> bool:
     t = " " + re.sub(r"[^a-z0-9#+.]+", " ", title.lower().replace("-", " ")) + " "
-    if not re.search(r"\b(engineer|developer|programmer|swe)\b", t) and prefs.target_roles:
+    if not re.search(r"\b(engineer|developer|programmer|swe)\b", t) and prefs.active_roles:
         # 目标职位本身不是工程师类时，只看目标字词
         return any(f" {w} " in t for w in role_tokens(prefs))
     tokens = role_tokens(prefs)
@@ -138,7 +138,7 @@ def search_locations(prefs: JobPreferences) -> list[str]:
 
 def build_queries(site_id: str, prefs: JobPreferences, limit: int = 6) -> list[str]:
     """给 Tavily / SearXNG 用的查询字串（模型自带搜索则直接给它规则，由它自己组查询）。"""
-    roles = prefs.target_roles[:3] or ["Software Engineer"]
+    roles = prefs.active_roles[:3] or ["Software Engineer"]
     domains = SITE_RULES[site_id]["domains"]
     out = []
     for role in roles:

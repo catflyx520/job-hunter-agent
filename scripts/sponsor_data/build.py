@@ -20,6 +20,7 @@ sys.path.insert(0, str(BACKEND))
 
 from app.core.config import get_settings  # noqa: E402
 from app.core.db import get_sessionmaker  # noqa: E402
+from app.sponsor.import_status import ImportProgress  # noqa: E402
 from app.sponsor.lookup import recompute_all_statuses  # noqa: E402
 from app.sponsor.pipeline import PipelineError, aggregate, identify, import_summary, write_summary  # noqa: E402
 
@@ -32,6 +33,9 @@ def main() -> int:
 
     data = get_settings().data_dir / "sponsor"
     summary = args.import_only or data / "summary.jsonl.gz"
+    # 进度写进 data/sponsor/import_status.json，职位页会显示「导入中」
+    prog = ImportProgress(get_settings().data_dir)
+    prog.update(stage="reading")
     try:
         if not args.import_only:
             raw = data / "raw"
@@ -43,19 +47,29 @@ def main() -> int:
                 print(f"{raw} 里没有官方资料档。请先执行 download.py，或手动下载后放进这个资料夹。")
                 return 1
             t0 = time.time()
-            employers, rows_read = aggregate(files)
+            employers, rows_read = aggregate(files, progress=prog.update)
+            prog.update(stage="summarizing", files_done=len(files), files_total=len(files))
             write_summary(employers, files, rows_read, summary)
             print(f"汇总完成：{len(employers)} 个雇主，{time.time() - t0:.0f} 秒 → {summary}")
         if args.no_import:
+            prog.finish("已产生汇总档（没有导入数据库）。")
             return 0
         with get_sessionmaker()() as db:
-            result = import_summary(db, summary)
+            prog.update(stage="importing", employers_done=0)
+            result = import_summary(db, summary, progress=prog.update)
+            prog.update(stage="recomputing")
             updated = recompute_all_statuses(db)
             db.commit()
-        print(f"已导入数据库：{result}；重算 {updated} 家公司的签证状态")
+        msg = f"已导入 {result['employers']} 个雇主、{result['datasets']} 个资料档；重算 {updated} 家公司的签证状态。"
+        prog.finish(msg)
+        print(msg)
     except PipelineError as exc:
+        prog.fail(str(exc))
         print(f"错误：{exc}")
         return 2
+    except BaseException as exc:  # 包括 Ctrl+C：让页面知道导入没完成
+        prog.fail(f"导入中断：{type(exc).__name__}")
+        raise
     return 0
 
 

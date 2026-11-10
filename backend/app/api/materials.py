@@ -43,7 +43,7 @@ class MaterialOut(BaseModel):
     question: str | None
     requirements: str | None
     jd_source: str
-    resume_id: uuid.UUID
+    resume_id: uuid.UUID | None  # 履历版本删除后为空
     facts_used: list[str] | None
     status: str
     output_text: str | None

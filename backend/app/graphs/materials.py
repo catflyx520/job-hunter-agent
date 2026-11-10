@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Literal, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -86,11 +87,19 @@ KIND_GUIDE = {
 }
 LANG = {"en": "Write the draft in English.", "zh": "Write the draft in Simplified Chinese."}
 
-NUM = re.compile(r"(?<![\w.])\$?\d[\d,]*(?:\.\d+)?\s?(?:%|k|K|M|\+)?")
+NUM = re.compile(r"(?<![\w.])\$?(\d[\d,]*(?:\.\d+)?)\s?(%|(?:k|m|b|thousand|million|billion)\b)?\+?", re.I)
+_SCALE = {"k": 1_000, "thousand": 1_000, "m": 1_000_000, "million": 1_000_000, "b": 10**9, "billion": 10**9}
 
 
 def _numbers(text: str) -> set[str]:
-    return {re.sub(r"[\s,$+]", "", m.group(0)).lower() for m in NUM.finditer(text)}
+    """换算成同一种写法再比对：50k、50,000、$50000 都是 50000；1.2M 和 1.2 million 都是 1200000。"""
+    out = set()
+    for m in NUM.finditer(text):
+        value = Decimal(m.group(1).replace(",", "") or "0")
+        unit = (m.group(2) or "").lower()
+        value *= _SCALE.get(unit, 1)
+        out.add(f"{value.normalize():f}" + ("%" if unit == "%" else ""))
+    return out
 
 
 def verify_draft(

@@ -20,13 +20,15 @@ from app.models import ExperienceChunk, Preferences, Resume, ResumeReview
 from app.rag.chunks import rebuild_chunks
 from app.resume_review.ats_text import ATS_EXPLAINED
 from app.resume_review.extract import ALLOWED_MIMES, UnsupportedFile, extract, sniff_mime
-from app.resume_review.structure import structure_resume, unverified_items
+from app.resume_review.structure import empty_structure_warning, structure_resume, unverified_items
+from app.schemas.profile import JobPreferences
 from app.schemas.resume import (
     ChunkResult,
     ParsedResume,
     ParsedUpdate,
     ResumeDetail,
     ResumeOut,
+    ResumeRename,
     ReviewOut,
     ReviewRequest,
     UploadResult,
@@ -44,6 +46,12 @@ def _detail(db: Session, r: Resume) -> ResumeDetail:
         {
             **{k: getattr(r, k) for k in ResumeDetail.model_fields if hasattr(r, k)},
             "chunk_count": _chunk_count(db, r.id),
+            "latest_review": db.scalar(
+                select(ResumeReview)
+                .where(ResumeReview.resume_id == r.id)
+                .order_by(ResumeReview.created_at.desc())
+                .limit(1)
+            ),
         }
     )
 
@@ -86,7 +94,11 @@ def upload_resume(
     sha = hashlib.sha256(data).hexdigest()
     existing = db.scalar(select(Resume).where(Resume.sha256 == sha))
     if existing is not None:
-        raise HTTPException(409, f"这份档案已经上传过（「{existing.label}」）。")
+        raise HTTPException(
+            409,
+            f"这个档案的内容和已上传的「{existing.label}」完全相同（跟档名无关）。"
+            "如果只是想重新解析，请选那个版本，在「管理」里点「重新结构化」；要上传新版本，请先存成修改过的档案。",
+        )
 
     resume_id = uuid.uuid4()
     rel = Path("resumes") / f"{resume_id}{ALLOWED_MIMES[mime]}"
@@ -98,6 +110,7 @@ def upload_resume(
     parsed = ParsedResume()
     try:
         parsed = structure_resume(provider_for_task(db, "resume_parse"), extracted.text)
+        parse_error = empty_structure_warning(parsed, extracted.text)
     except LLMError as exc:
         parse_error = f"履历结构化失败：{exc} 你可以稍后重试，或在页面上手动填写。"
 
@@ -144,7 +157,11 @@ def reparse_resume(resume_id: uuid.UUID, db: Session = Depends(get_db)):
     r.parsed = parsed.model_dump()
     r.parsed_confirmed_at = None
     db.flush()
-    return UploadResult(resume=_detail(db, r), unverified_items=unverified_items(parsed, r.raw_text))
+    return UploadResult(
+        resume=_detail(db, r),
+        parse_error=empty_structure_warning(parsed, r.raw_text),
+        unverified_items=unverified_items(parsed, r.raw_text),
+    )
 
 
 @router.put("/resumes/{resume_id}/parsed", response_model=ResumeDetail)
@@ -170,6 +187,18 @@ def build_chunks(resume_id: uuid.UUID, db: Session = Depends(get_db)):
     return ChunkResult(chunk_count=count, embedding_model=provider.model)
 
 
+@router.patch("/resumes/{resume_id}", response_model=ResumeOut)
+def rename_resume(resume_id: uuid.UUID, body: ResumeRename, db: Session = Depends(get_db)):
+    r = _get(db, resume_id)
+    label = body.label.strip()
+    if not label:
+        raise HTTPException(422, "版本名称不能是空的")
+    r.label = label
+    db.flush()
+    db.refresh(r)
+    return _detail(db, r)
+
+
 @router.post("/resumes/{resume_id}/activate", response_model=ResumeOut)
 def activate_resume(resume_id: uuid.UUID, db: Session = Depends(get_db)):
     r = _get(db, resume_id)
@@ -183,6 +212,7 @@ def activate_resume(resume_id: uuid.UUID, db: Session = Depends(get_db)):
 
 @router.delete("/resumes/{resume_id}", status_code=204)
 def delete_resume(resume_id: uuid.UUID, db: Session = Depends(get_db)):
+    """删除版本：档案、评分、检索切块一起删；搜索批次、职位评分、材料、投递记录保留（resume_id 设为空）。"""
     r = _get(db, resume_id)
     path = _abs_path(r)
     db.delete(r)
@@ -199,7 +229,7 @@ def create_review(resume_id: uuid.UUID, body: ReviewRequest, db: Session = Depen
     target_role = (body.target_role or "").strip() or None
     if target_role is None:
         prefs = db.get(Preferences, 1)
-        roles = (prefs.data.get("target_roles") if prefs else None) or []
+        roles = JobPreferences.model_validate(prefs.data).active_roles if prefs else []
         target_role = roles[0] if roles else None
     try:
         data = _abs_path(r).read_bytes()

@@ -5,8 +5,9 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from app.jobs.normalize import normalize_company
 from app.models import Job
-from app.schemas.profile import JobPreferences
+from app.schemas.profile import Blacklist, JobPreferences
 
 HOURS_PER_YEAR = 2080
 
@@ -17,6 +18,8 @@ REASON_LABELS = {
     "salary_below_minimum": "薪资区间整个低于你的最低年薪",
     "new_grad_only": "明确限定 New Grad / 毕业年份",
     "expired": "职位已过期",
+    "blacklisted_company": "公司在你的黑名单里",
+    "blacklisted_title": "职称符合黑名单里的职位",
 }
 FLAG_LABELS = {
     "salary_partially_below": "薪资区间下段低于你的最低年薪（区间有涵盖到，保留）",
@@ -56,8 +59,30 @@ def annual(amount: int | None, period: str | None) -> int | None:
     return amount * HOURS_PER_YEAR if period == "hour" else amount
 
 
+def _words(text: str) -> str:
+    return " " + " ".join(re.findall(r"[a-z0-9#+]+", text.lower())) + " "
+
+
+def title_matches(title: str, phrase: str) -> bool:
+    """职称里含这组词（整词、按顺序、不分大小写与标点）。例：「Sales Engineer」符合「Senior Sales Engineer, West」。"""
+    p = _words(phrase)
+    return p.strip() != "" and p in _words(title)
+
+
+def blacklist_reasons(job: Job, bl: Blacklist) -> list[str]:
+    reasons = []
+    company = getattr(job, "company", None)
+    if company is not None and bl.companies:
+        norm = normalize_company(company.display_name)
+        if norm and norm in {normalize_company(c) for c in bl.companies}:
+            reasons.append("blacklisted_company")
+    if any(title_matches(job.title or "", t) for t in bl.titles):
+        reasons.append("blacklisted_title")
+    return reasons
+
+
 def check_exclusions(job: Job, prefs: JobPreferences) -> ExclusionResult:
-    reasons: list[str] = []
+    reasons: list[str] = blacklist_reasons(job, prefs.blacklist)
     flags: list[str] = []
     auth = prefs.work_authorization
     needs_sponsor = bool(auth.needs_sponsorship_now or auth.needs_sponsorship_future)

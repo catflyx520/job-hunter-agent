@@ -32,7 +32,6 @@ export function StatusSelect({
       <select
         value={value ?? ""}
         onChange={(e) => e.target.value && set(e.target.value as ApplicationStatus)}
-        style={{ fontSize: 12, padding: "2px 4px" }}
         aria-label="投递状态"
       >
         <option value="">未标记</option>

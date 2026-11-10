@@ -12,7 +12,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db
-from app.models import Application, ApplicationEvent, Job, Material, Resume
+from app.jobs.exclusion import blacklist_reasons
+from app.models import Application, ApplicationEvent, Job, Material, Preferences, Resume
+from app.schemas.profile import Blacklist, JobPreferences
 
 router = APIRouter(prefix="/api", tags=["applications"])
 
@@ -129,3 +131,58 @@ def list_applications(status: Status | None = None, db: Session = Depends(get_db
     if status:
         q = q.where(Application.status == status)
     return db.scalars(q.limit(1000)).all()
+
+
+# ---------- 黑名单 ----------
+
+
+class BlacklistIn(BaseModel):
+    kind: Literal["company", "title"]
+    value: str = Field(min_length=1, max_length=200)
+
+
+class BlacklistOut(BaseModel):
+    blacklist: Blacklist
+    dismissed: int  # 这次移到「已删除」的职位数
+    kept_submitted: int  # 符合但已投递过、为了保留投递记录没有删除的职位数
+
+
+@router.post("/blacklist", response_model=BlacklistOut)
+def add_to_blacklist(body: BlacklistIn, db: Session = Depends(get_db)):
+    """加进黑名单（存在求职需求里，版本 +1），并把已存的相符职位移到「已删除」（可还原）。
+    已经投递过的不删，免得投递记录从统计里消失。之后的搜索会把相符的职位排除。"""
+    row = db.get(Preferences, 1)
+    prefs = JobPreferences.model_validate(row.data) if row else JobPreferences()
+    value = " ".join(body.value.split())
+    items = prefs.blacklist.companies if body.kind == "company" else prefs.blacklist.titles
+    if value.lower() not in {x.lower() for x in items}:
+        items.append(value)
+    prefs = JobPreferences.model_validate(prefs.model_dump())
+    if row is None:
+        db.add(Preferences(id=1, data=prefs.model_dump(), version=1))
+    elif row.data != prefs.model_dump():
+        row.data = prefs.model_dump()
+        row.version += 1
+
+    only = Blacklist(
+        companies=[value] if body.kind == "company" else [], titles=[value] if body.kind == "title" else []
+    )
+    dismissed = kept = 0
+    for job in db.scalars(select(Job)):
+        if not blacklist_reasons(job, only):
+            continue
+        app = _app(db, job.id)
+        if app is not None and app.status in SUBMITTED:
+            kept += 1
+            continue
+        if app is None:
+            app = Application(job_id=job.id, status="dismissed", previous_status="saved")
+            db.add(app)
+            db.flush()
+            db.add(ApplicationEvent(application_id=app.id, from_status=None, to_status="dismissed", note="加入黑名单"))
+            dismissed += 1
+        elif app.status != "dismissed":
+            change_status(db, app, "dismissed", "加入黑名单")
+            dismissed += 1
+    db.flush()
+    return BlacklistOut(blacklist=prefs.blacklist, dismissed=dismissed, kept_submitted=kept)

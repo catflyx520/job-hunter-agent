@@ -5,16 +5,17 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.db import get_db
 from app.core.fetch import FetchError
 from app.jobs.exclusion import FLAG_LABELS, REASON_LABELS, check_exclusions
 from app.jobs.service import IngestError, ingest, load_preferences, match_job
 from app.llm.base import LLMError
 from app.llm.registry import provider_for_task
-from app.models import Application, Company, CompanySponsorStatus, EmployerAlias, Job, JobMatch
+from app.models import Application, ApplicationEvent, Company, CompanySponsorStatus, EmployerAlias, Job, JobMatch
 from app.rag.retrieve import evidence_texts
 from app.schemas.job import (
     AliasDecision,
@@ -29,6 +30,7 @@ from app.schemas.job import (
     SponsorStatusOut,
 )
 from app.sponsor.entity import EntityError, suggest_entity
+from app.sponsor.import_status import read_status
 from app.sponsor.lookup import compute_status, coverage, refresh_company
 
 router = APIRouter(prefix="/api", tags=["jobs"])
@@ -36,6 +38,18 @@ router = APIRouter(prefix="/api", tags=["jobs"])
 
 def _latest_match(db: Session, job_id: uuid.UUID) -> JobMatch | None:
     return db.scalar(select(JobMatch).where(JobMatch.job_id == job_id).order_by(JobMatch.created_at.desc()).limit(1))
+
+
+def _application(db: Session, job_id: uuid.UUID) -> dict:
+    row = db.execute(
+        select(Application.status, Application.applied_at, func.max(ApplicationEvent.at).label("status_at"))
+        .outerjoin(ApplicationEvent, ApplicationEvent.application_id == Application.id)
+        .where(Application.job_id == job_id)
+        .group_by(Application.id)
+    ).first()
+    if row is None:
+        return {"application_status": None, "applied_at": None, "status_at": None}
+    return {"application_status": row.status, "applied_at": row.applied_at, "status_at": row.status_at}
 
 
 def _summary(db: Session, job: Job) -> dict:
@@ -49,7 +63,9 @@ def _summary(db: Session, job: Job) -> dict:
         "recommendation": m.recommendation if m else None,
         "excluded": check_exclusions(job, prefs).excluded,
         "sponsor_status": st.status if st else None,
-        "application_status": db.scalar(select(Application.status).where(Application.job_id == job.id)),
+        "sponsor_h1b": bool(st.h1b_years) if st else None,
+        "sponsor_perm": bool(st.perm_years) if st else None,
+        **_application(db, job.id),
     }
 
 
@@ -137,7 +153,7 @@ def _get_company(db: Session, company_id: uuid.UUID) -> Company:
 
 @router.get("/sponsor/coverage")
 def sponsor_coverage(db: Session = Depends(get_db)):
-    return coverage(db)
+    return {**coverage(db), "import": read_status(get_settings().data_dir)}
 
 
 @router.patch("/companies/{company_id}", response_model=SponsorStatusOut)

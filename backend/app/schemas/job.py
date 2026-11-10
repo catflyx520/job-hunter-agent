@@ -48,7 +48,7 @@ class MatchOut(BaseModel):
     gaps: list[dict[str, Any]]
     exclusion_reasons: list[str] | None
     model: str
-    resume_id: uuid.UUID
+    resume_id: uuid.UUID | None  # 履历版本删除后为空
     preferences_version: int
     created_at: datetime
 
@@ -75,11 +75,15 @@ class JobSummary(BaseModel):
     recommendation: str | None = None
     excluded: bool = False
     sponsor_status: str | None = None
+    sponsor_h1b: bool | None = None  # 官方资料里查到 H-1B 记录（未查为空）
+    sponsor_perm: bool | None = None  # 查到 PERM（绿卡）记录
     location_tier: int | None = None
     posted_text: str | None = None
     posted_at: datetime | None = None
     apply_url: str | None = None
     application_status: str | None = None  # 投递状态（未标记为空）
+    applied_at: datetime | None = None  # 第一次标记为已投递的时间
+    status_at: datetime | None = None  # 最近一次改投递状态的时间（已删除分组按这个排序）
 
 
 class JobDetail(JobSummary):

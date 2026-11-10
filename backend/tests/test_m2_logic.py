@@ -200,6 +200,29 @@ def test_exclusions():
     assert check_exclusions(_job(sponsorship_policy="explicit_no", citizenship_required=True), citizen).reasons == []
 
 
+def test_visa_status_drives_exclusions():
+    no_sponsor = _job(sponsorship_policy="explicit_no")
+    gc_only = _job(citizenship_required=True)
+    for status in ("h1b", "opt"):
+        prefs = _prefs(work_authorization={"status": status})
+        assert check_exclusions(no_sponsor, prefs).reasons == ["explicit_no_sponsorship"]
+        assert check_exclusions(gc_only, prefs).reasons == ["citizenship_required"]
+    for status in ("us_citizen", "green_card"):
+        prefs = _prefs(work_authorization={"status": status, "needs_sponsorship_now": True})  # 身份优先于手填
+        assert check_exclusions(no_sponsor, prefs).reasons == []
+        assert check_exclusions(gc_only, prefs).reasons == []
+    opt = _prefs(work_authorization={"status": "opt"}).work_authorization
+    assert (opt.authorized_in_us, opt.needs_sponsorship_now, opt.needs_sponsorship_future) == (True, False, True)
+    # 「其他」：沿用手填三项
+    other = _prefs(work_authorization={"status": "other", "authorized_in_us": False})
+    assert other.work_authorization.authorized_in_us is False
+
+
+def test_target_roles_split_on_commas():
+    prefs = _prefs(target_roles=["Full-stack engineer, software developer，backend engineer", "backend engineer"])
+    assert prefs.target_roles == ["Full-stack engineer", "software developer", "backend engineer"]
+
+
 # ---------- 评分规则 ----------
 
 
@@ -297,3 +320,38 @@ def test_normalize_company_dotted_suffixes(a, b):
     from app.jobs.normalize import normalize_company
 
     assert normalize_company(a) == normalize_company(b)
+
+
+@pytest.mark.parametrize(
+    "a, b, same",
+    [
+        ("handled 50k requests", "handled 50,000 requests", True),
+        ("1.2M monthly users", "1.2 million monthly users", True),
+        ("$140,000 base", "140000 base", True),
+        ("cut latency by 40%", "cut latency by 40 percent 40%", True),
+        ("50k requests", "60,000 requests", False),
+        ("40% faster", "40 faster", False),
+        ("for 3 months", "for 3 million", False),
+    ],
+)
+def test_draft_numbers_compare_by_value(a, b, same):
+    from app.graphs.materials import _numbers
+
+    assert (_numbers(a) == _numbers(b)) is same or (same and _numbers(a) <= _numbers(b))
+
+
+def test_paused_roles_are_kept_but_not_used():
+    prefs = _prefs(target_roles=["Backend Engineer", "AI Engineer"], paused_roles=["AI Engineer", "Not In List"])
+    assert prefs.paused_roles == ["AI Engineer"]  # 不在清单里的停用项会被丢掉
+    assert prefs.active_roles == ["Backend Engineer"]
+    assert prefs.target_roles == ["Backend Engineer", "AI Engineer"]
+
+
+def test_title_blacklist_matches_whole_words():
+    from app.jobs.exclusion import title_matches
+
+    assert title_matches("Senior Sales Engineer, West", "sales engineer")
+    assert title_matches("Sales-Engineer II", "Sales Engineer")
+    assert not title_matches("Wholesales Engineer", "sales engineer")
+    assert not title_matches("Engineer, Sales", "sales engineer")  # 词序不同不算
+    assert not title_matches("Anything", "  ")

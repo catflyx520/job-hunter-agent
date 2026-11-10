@@ -12,8 +12,8 @@ from sqlalchemy.orm import Session
 from app.api.jobs import _summary
 from app.core.db import get_db
 from app.core.security import encrypt_secret, last4
-from app.jobs.exclusion import REASON_LABELS
-from app.jobs.service import IngestError, upsert_company
+from app.jobs.exclusion import REASON_LABELS, check_exclusions
+from app.jobs.service import IngestError, load_preferences, upsert_company
 from app.llm.base import LLMError
 from app.models import Company, Integration, Job, JobSite, JobSource, SearchRun, SearchRunJob, SearchRunSite
 from app.schemas.job import (
@@ -254,13 +254,19 @@ def get_run(run_id: str, db: Session = Depends(get_db)):
         select(JobSource.job_id, JobSource.site_id).where(JobSource.first_seen_run_id == run.id)
     ):
         found_on.setdefault(job_id, []).append(site_id)
+    prefs, _ = load_preferences(db)
     jobs = []
     for rj, job in rows:
+        # 排除规则按目前的求职需求重算：改了身份（例如改成 OPT）后，旧批次也立刻反映
+        outcome, codes = rj.outcome, rj.exclusion_reasons or []
+        if outcome != "duplicate":
+            live = check_exclusions(job, prefs)
+            outcome, codes = ("excluded" if live.excluded else "kept"), live.reasons
         jobs.append(
             RunJobOut(
                 **_summary(db, job),
-                outcome=rj.outcome,
-                exclusion_reasons=[{"code": c, "label": REASON_LABELS.get(c, c)} for c in rj.exclusion_reasons or []],
+                outcome=outcome,
+                exclusion_reasons=[{"code": c, "label": REASON_LABELS.get(c, c)} for c in codes],
                 found_on=sorted(set(found_on.get(job.id, []))),
             )
         )

@@ -111,7 +111,7 @@ class LLMSearcher:
         user = (
             f"Site: {site_name} (search within: {', '.join(rules['domains'])})\n"
             f"Job page URL example: {URL_EXAMPLES.get(site_id, '')}\n"
-            f"Target roles: {', '.join(prefs.target_roles) or 'Software Engineer'}\n"
+            f"Target roles: {', '.join(prefs.active_roles) or 'Software Engineer'}\n"
             f"Seniority: {', '.join(prefs.seniority) or 'any'}\n"
             f"Locations in priority order: {', '.join(search_locations(prefs))}\n"
             f"Work modes: {', '.join(prefs.work_modes) or 'any'}\n"

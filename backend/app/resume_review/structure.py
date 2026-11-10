@@ -28,6 +28,21 @@ def structure_resume(provider: LLMProvider, raw_text: str) -> ParsedResume:
     return result.parsed
 
 
+EXPERIENCE_HEADING = re.compile(
+    r"^\s*(work |professional |relevant )?(experience|employment( history)?|work history)\s*:?\s*$", re.I | re.M
+)
+
+
+def empty_structure_warning(parsed: ParsedResume, raw_text: str) -> str | None:
+    """原文明明有经历标题，结构化结果却没有任何经历：多半是模型漏抓，提醒用户重新结构化。"""
+    if parsed.experience or not EXPERIENCE_HEADING.search(raw_text):
+        return None
+    return (
+        "结构化结果里没有任何工作经历，但原文有 Experience 段落，可能是模型漏抓。"
+        "请在「管理」里点「重新结构化」（可在设置页为「履历解析」换一个模型），或手动补上。"
+    )
+
+
 _WS = re.compile(r"[\W_]+", re.UNICODE)
 
 

@@ -58,6 +58,17 @@ class ParsedResume(BaseModel):
     education: list[Education] = Field(default_factory=list)
 
 
+class ReviewSummary(BaseModel):
+    """履历管理页的版本列表：最近一次评分。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    parse_score: int
+    content_score: int
+    keyword_score: int | None
+    created_at: datetime
+
+
 class ResumeOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -72,6 +83,7 @@ class ResumeOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     chunk_count: int = 0
+    latest_review: ReviewSummary | None = None
 
 
 class ResumeDetail(ResumeOut):
@@ -83,6 +95,10 @@ class UploadResult(BaseModel):
     parse_error: str | None = None
     # 结构化结果中在原文找不到的项目（可能被模型改写），请用户确认
     unverified_items: list[str] = Field(default_factory=list)
+
+
+class ResumeRename(BaseModel):
+    label: str = Field(min_length=1, max_length=120)
 
 
 class ParsedUpdate(BaseModel):

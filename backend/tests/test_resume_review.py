@@ -118,3 +118,23 @@ def test_secret_roundtrip_and_last4():
     assert b"sk-test" not in token
     assert security.decrypt_secret(token) == "sk-test-1234"
     assert security.last4("sk-test-1234") == "1234"
+
+
+def test_content_review_reads_raw_text_when_structure_is_empty():
+    """结构化失败（经历是空的）时，内容评分仍读履历原文，而不是对空资料给 0 分。"""
+    from app.resume_review.content import review_content
+
+    fake = FakeProvider(fake_responder)
+    raw = "\n".join(make_pdf.__globals__["SYNTHETIC_LINES"])
+    review_content(fake, ParsedResume(), 1, raw)
+    prompt = fake.calls[-1][0][-1].content
+    assert "structuring probably failed" in prompt
+    assert "Built a FastAPI" in prompt  # 原文的 bullet 有交给模型
+
+
+def test_empty_structure_warning():
+    from app.resume_review.structure import empty_structure_warning
+
+    assert "重新结构化" in empty_structure_warning(ParsedResume(), "Jordan\nExperience\nAcme 2020")
+    assert empty_structure_warning(ParsedResume(), "no headings here") is None
+    assert empty_structure_warning(ParsedResume.model_validate(SYNTHETIC_PARSED), "Experience") is None

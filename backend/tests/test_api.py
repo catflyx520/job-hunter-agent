@@ -170,3 +170,14 @@ def test_facts_confirmation_rules(client):
 
     assert client.post("/api/facts", json={"key": "notice_period", "question": "x"}).status_code == 409
     assert client.post("/api/facts", json={"key": "Bad Key", "question": "x"}).status_code == 422
+
+
+def test_rename_resume_and_list_shows_latest_review(client):
+    rid = _upload(client).json()["resume"]["id"]
+    r = client.patch(f"/api/resumes/{rid}", json={"label": "  Backend 版  "})
+    assert r.status_code == 200 and r.json()["label"] == "Backend 版"
+    assert client.patch(f"/api/resumes/{rid}", json={"label": "   "}).status_code == 422
+    assert client.get("/api/resumes").json()[0]["latest_review"] is None
+    client.post(f"/api/resumes/{rid}/reviews", json={"target_role": "Backend Engineer"})
+    latest = client.get("/api/resumes").json()[0]["latest_review"]
+    assert latest["content_score"] == 82 and latest["keyword_score"] == 57

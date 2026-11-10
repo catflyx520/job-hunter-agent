@@ -1,6 +1,7 @@
 import { ClipboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api, JobSummary, Material } from "../api";
+import { Spinner } from "./ui";
 
 const MAX_IMAGES = 6;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -240,7 +241,7 @@ function Generator({
       </label>
       <p className="muted">只会使用你的履历与「已确认」的个人事实；缺少的事实会列在「需要确认」，不会猜。</p>
       <button className="primary" disabled={busy || !canSubmit} onClick={submit}>
-        {busy ? "生成中…" : "生成草稿"}
+        {busy ? <><Spinner />生成中…</> : "生成草稿"}
       </button>
       {error && <p className="error">{error}</p>}
     </div>

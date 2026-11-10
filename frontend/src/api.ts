@@ -99,6 +99,7 @@ export interface Resume {
   is_active: boolean;
   created_at: string;
   chunk_count: number;
+  latest_review: { parse_score: number; content_score: number; keyword_score: number | null; created_at: string } | null;
   raw_text?: string;
 }
 
@@ -130,6 +131,8 @@ export interface Review {
 
 export interface JobPreferences {
   target_roles: string[];
+  paused_roles: string[];
+  blacklist: { companies: string[]; titles: string[] };
   seniority: string[];
   locations: string[];
   work_modes: string[];
@@ -138,6 +141,7 @@ export interface JobPreferences {
   salary_rule: string;
   exclude_new_grad_only: boolean;
   work_authorization: {
+    status: VisaStatus | null;
     authorized_in_us: boolean | null;
     needs_sponsorship_now: boolean | null;
     needs_sponsorship_future: boolean | null;
@@ -145,6 +149,8 @@ export interface JobPreferences {
   };
   search: { sites: string[]; per_site_limit: number; total_limit: number };
 }
+
+export type VisaStatus = "us_citizen" | "green_card" | "h1b" | "opt" | "other";
 
 export interface Fact {
   id: string;
@@ -221,11 +227,15 @@ export interface JobSummary {
   recommendation: "apply" | "maybe" | "skip" | null;
   excluded: boolean;
   sponsor_status: SponsorStatusCode | null;
+  sponsor_h1b: boolean | null;
+  sponsor_perm: boolean | null;
   location_tier: number | null;
   posted_text: string | null;
   posted_at: string | null;
   apply_url: string | null;
   application_status: ApplicationStatus | null;
+  applied_at: string | null;
+  status_at: string | null;
 }
 
 // ---------- 投递追踪（F5） ----------

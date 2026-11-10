@@ -53,7 +53,8 @@ def test_status_changes_are_recorded_and_applied_time_is_mark_time(client):
     assert a["events"][1]["note"] == "用 LinkedIn 投递" and a["notes"] == "下周一电话面试"
 
     summary = {j["id"]: j for j in client.get("/api/jobs").json()}
-    assert summary[nw]["application_status"] == "interviewing"
+    assert summary[nw]["application_status"] == "interviewing" and summary[nw]["applied_at"] is not None
+    assert summary[jobs["acme"]]["applied_at"] is None
     assert summary[jobs["acme"]]["application_status"] is None
 
 
@@ -63,6 +64,12 @@ def test_dismiss_and_restore(client):
     _put(client, acme, "applied")
     a = _put(client, acme, "dismissed")
     assert a["status"] == "dismissed" and a["previous_status"] == "applied"
+    # 删除的职位留在资料库：列表标成 dismissed，统计算得到、也能下钻
+    row = {j["id"]: j for j in client.get("/api/jobs").json()}[acme]
+    assert row["application_status"] == "dismissed" and row["status_at"] >= row["applied_at"]  # 已删除按删除时间排序
+    assert client.get("/api/stats").json()["totals"]["dismissed"] == 1
+    drill = client.get("/api/stats/jobs", params={"dim": "application_status", "value": "dismissed"}).json()
+    assert [j["id"] for j in drill] == [acme]
     r = client.post(f"/api/jobs/{acme}/application/restore")
     assert r.status_code == 200 and r.json()["status"] == "applied" and r.json()["previous_status"] is None
     assert client.post(f"/api/jobs/{acme}/application/restore").status_code == 409
@@ -137,3 +144,42 @@ def test_trend_fills_missing_days(client):
     _put(client, jobs["northwind"], "applied")
     day = client.get("/api/stats").json()["trend"]["day"]
     assert [d["applied"] for d in day] == [1, 0, 0, 1], day
+
+
+def test_delete_resume_keeps_jobs_matches_and_applications(client):
+    """被职位评分、投递记录引用的履历版本也能删除；那些记录保留，resume_id 变成空。"""
+    rid, jobs = _setup(client)
+    _put(client, jobs["robotics"], "applied")
+    assert client.delete(f"/api/resumes/{rid}").status_code == 204
+    assert client.get("/api/resumes").json() == []
+    job = client.get(f"/api/jobs/{jobs['robotics']}").json()
+    assert job["match"] is not None and job["match"]["resume_id"] is None
+    app = client.get(f"/api/jobs/{jobs['robotics']}/application").json()
+    assert app["status"] == "applied" and app["resume_id"] is None
+    # 删除后可以再上传
+    assert client.post("/api/resumes", files={"file": ("r.pdf", make_pdf(), "application/pdf")}).status_code == 201
+
+
+def test_blacklist_company_and_title(client):
+    _, jobs = _setup(client)
+    _put(client, jobs["northwind"], "applied")  # 已投递的不删
+    r = client.post("/api/blacklist", json={"kind": "title", "value": "backend   engineer"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # 「Senior Backend Engineer」（robotics）移到已删除；「Backend Engineer」（northwind）已投递 → 保留
+    assert body["dismissed"] == 1 and body["kept_submitted"] == 1
+    assert body["blacklist"]["titles"] == ["backend engineer"]
+    summary = {j["id"]: j for j in client.get("/api/jobs").json()}
+    assert summary[jobs["robotics"]]["application_status"] == "dismissed"
+    assert summary[jobs["northwind"]]["application_status"] == "applied"
+    assert summary[jobs["acme"]]["application_status"] is None and summary[jobs["acme"]]["excluded"] is False
+
+    r = client.post("/api/blacklist", json={"kind": "company", "value": "ACME CLOUD, INC."})
+    assert r.json()["dismissed"] == 1
+    detail = client.get(f"/api/jobs/{jobs['acme']}").json()
+    assert [x["code"] for x in detail["exclusion"]["reasons"]] == ["blacklisted_company"]  # 之后搜索也会排除
+    prefs = client.get("/api/preferences").json()
+    assert prefs["data"]["blacklist"] == {"companies": ["ACME CLOUD, INC."], "titles": ["backend engineer"]}
+    # 同一项再加一次：不重复
+    again = client.post("/api/blacklist", json={"kind": "company", "value": "acme cloud, inc."}).json()
+    assert again["blacklist"]["companies"] == ["ACME CLOUD, INC."] and again["dismissed"] == 0

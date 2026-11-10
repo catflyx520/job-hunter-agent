@@ -135,7 +135,7 @@ class Agg:
     datasets: dict = field(default_factory=lambda: collections.defaultdict(set))
 
 
-def aggregate(files: list[SourceFile], log=print) -> tuple[dict[str, Agg], dict[str, int]]:
+def aggregate(files: list[SourceFile], log=print, progress=None) -> tuple[dict[str, Agg], dict[str, int]]:
     """回传 {employer_norm: Agg} 与 {档名: 读到的雇主列数}。任何档案读到 0 列就报错（不当成「查无」）。"""
     employers: dict[str, Agg] = collections.defaultdict(Agg)
     rows_read: dict[str, int] = {}
@@ -143,7 +143,9 @@ def aggregate(files: list[SourceFile], log=print) -> tuple[dict[str, Agg], dict[
     files = sorted(files, key=lambda f: (f.program, f.fiscal_year, f.quarter or 0))
     # (program, fy) -> {case_number: (row, 档名)}；季度档会重叠，后面的覆盖前面的
     dol_cases: dict[tuple[str, int], dict[str, tuple[dict[str, str], str]]] = collections.defaultdict(dict)
-    for sf in files:
+    for i, sf in enumerate(files):
+        if progress:
+            progress(stage="reading", file=sf.path.name, files_done=i, files_total=len(files))
         n = 0
         if sf.program == "uscis_h1b":
             for r in iter_csv(sf.path):
@@ -225,6 +227,7 @@ def write_summary(employers: dict[str, Agg], files: list[SourceFile], rows_read:
                 for sf in files
             ]
         }
+        manifest["employer_count"] = len(employers)
         f.write(json.dumps({"manifest": manifest}) + "\n")
         for norm, a in sorted(employers.items()):
             city = a.cities.most_common(1)[0][0] if a.cities else (None, None)
@@ -251,7 +254,7 @@ def write_summary(employers: dict[str, Agg], files: list[SourceFile], rows_read:
     return out
 
 
-def import_summary(db: Session, summary: Path, log=print) -> dict[str, int]:
+def import_summary(db: Session, summary: Path, log=print, progress=None) -> dict[str, int]:
     """把汇总档导入数据库。同一个资料档（sha256）重复导入时先删除旧数字再写入。"""
     with gzip.open(summary, "rt", encoding="utf-8") as f:
         manifest = json.loads(f.readline())["manifest"]
@@ -312,5 +315,7 @@ def import_summary(db: Session, summary: Path, log=print) -> dict[str, int]:
             if employers % 5000 == 0:
                 db.flush()
                 log(f"已导入 {employers} 个雇主")
+                if progress:
+                    progress(stage="importing", employers_done=employers, employers_total=manifest.get("employer_count"))
         db.flush()
     return {"employers": employers, "stats": stats, "datasets": len(file_to_id)}

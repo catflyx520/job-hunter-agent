@@ -17,7 +17,7 @@ from app.core.fetch import FetchError, fetch_page
 from app.jobs.exclusion import check_exclusions
 from app.jobs.extract import extract_job
 from app.jobs.normalize import site_for_url
-from app.jobs.service import JobOrigin, add_source, find_existing, match_job, save_job
+from app.jobs.service import IngestError, JobOrigin, add_source, find_existing, match_job, save_job
 from app.llm.base import LLMError
 from app.llm.registry import provider_for_task
 from app.models import Job, JobMatch, JobSource, SearchRunJob
@@ -66,7 +66,10 @@ def _evaluate(db: Session, job: Job, lead: Lead, prefs: JobPreferences, sponsor:
         return LeadResult(lead.site_id, lead.url, "excluded", str(job.id), exclusion.reasons)
     latest = db.scalar(select(JobMatch).where(JobMatch.job_id == job.id).order_by(JobMatch.created_at.desc()).limit(1))
     if latest is None or latest.created_at < (job.updated_at or job.created_at):
-        match_job(db, job)
+        try:
+            match_job(db, job)
+        except IngestError:
+            pass  # 履历没有可引用的内容：职位照样保留，显示「未评分」，详情页可在修好履历后重新评分
     return LeadResult(lead.site_id, lead.url, "kept", str(job.id))
 
 

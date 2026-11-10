@@ -42,7 +42,9 @@ def build_graph(content_provider: LLMProvider):
         return {"parse_score": score, "parse_findings": findings}
 
     def content(state: ReviewState) -> ReviewState:
-        score, findings = review_content(content_provider, state["parsed"], state["layout"].page_count)
+        score, findings = review_content(
+            content_provider, state["parsed"], state["layout"].page_count, state["raw_text"]
+        )
         return {"content_score": score, "content_findings": findings}
 
     def keywords(state: ReviewState) -> ReviewState:

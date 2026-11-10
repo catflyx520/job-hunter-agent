@@ -209,6 +209,12 @@ def match_job(db: Session, job: Job) -> JobMatch:
     keywords = [job.title, *ex.get("required_skills", []), *ex.get("nice_to_have_skills", [])]
     query = f"{job.title}\n{', '.join(keywords)}\n{(job.jd_text or '')[:2000]}"
     retrieval = retrieve(db, resume, query, keywords)
+    if not retrieval.items:
+        # 没有任何履历内容可引用时，模型只能给职位 / 技术 / 年资 0 分，分数没有意义，宁可不评
+        raise IngestError(
+            f"使用中的履历「{resume.label}」没有结构化出经历或专案，无法评分。"
+            "请到「履历内容」检查后确认，或在「版本管理」按「重新结构化」。"
+        )
     result = score_match(provider_for_task(db, "match_score"), job, prefs, retrieval.items, exclusion)
     if retrieval.note:
         result["gaps"].append({"text": retrieval.note, "severity": "low"})

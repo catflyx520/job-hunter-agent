@@ -163,6 +163,8 @@ def program_truth_check(failures: list[str]) -> dict[str, float]:
         ("占位符", Draft(text="I can start [NEEDS CONFIRMATION: start date].", citations=[]), ["placeholder"]),
         ("引用已确认事实", Draft(text="I need 2 weeks of notice.", citations=[Citation(sentence="I need 2 weeks of notice.", fact_keys=["notice_period"])]), []),
         ("JD 里的数字不算编造", Draft(text="The range of $140,000 works for me.", citations=[Citation(sentence="The range of $140,000 works for me.", evidence_ids=[e0])]), []),
+        ("同一个数字换写法不算编造", Draft(text="It processes 2 million events, or 2,000,000 per day.", citations=[Citation(sentence="It processes 2 million events, or 2,000,000 per day.", evidence_ids=[e0])]), []),
+        ("换写法后数值不同要抓出来", Draft(text="It processes 3 million events per day.", citations=[Citation(sentence="It processes 3 million events per day.", evidence_ids=[e0])]), ["number"]),
         ("模型自己列的需要确认", Draft(text="Hello.", citations=[], needs_confirmation=[NeedItem(item="salary", why="未提供")]), ["model"]),
     ]  # fmt: skip
     ok = 0
@@ -261,7 +263,10 @@ def eval_materials(provider, persona: str) -> dict[str, Any]:
         cits, needs, _ = verify_draft(draft, ev, facts, c.jd_text)
         out["cover_sentences"] = len(cits)
         out["cover_supported"] = sum(x["supported"] for x in cits)
-        out["cover_unsourced_numbers"] = sum(1 for n in needs if n["item"].startswith("数字"))
+        numbers = [n["item"] for n in needs if n["item"].startswith("数字")]
+        out["cover_unsourced_numbers"] = len(numbers)
+        out["cover_number_items"] = numbers  # 留下明细，指标不达标时才查得出原因
+        out["cover_text"] = draft.text
 
         q = "What is your expected annual base salary?"
         draft = generate_draft(provider, {**base, "kind": "qa", "question": q})
@@ -271,27 +276,46 @@ def eval_materials(provider, persona: str) -> dict[str, Any]:
         q = "When can you start?"
         draft = generate_draft(provider, {**base, "kind": "qa", "question": q})
         _, needs, used = verify_draft(draft, ev, facts, c.jd_text + " " + q)
-        has_fact = any(f.key == "start_date" for f in facts)
-        out["qa_start_ok"] = ("start_date" in used) if has_fact else bool(needs)
+        # 事实库有开始日期或 notice period 就该引用它回答；两个都没有才该列「需要确认」
+        relevant = {f.key for f in facts} & {"start_date", "notice_period"}
+        out["qa_start_ok"] = bool(relevant & set(used)) if relevant else bool(needs)
+        out["qa_start_text"], out["qa_start_needs"], out["qa_start_facts"] = draft.text, needs, used
     except Exception as exc:  # noqa: BLE001
         out["error"] = f"{type(exc).__name__}: {exc}"
     return out
 
 
-def run_llm(kind: str, model: str, limit: int | None, personas: list[str] | None, workers: int):
+def ratio(part: float, whole: float) -> float | None:
+    """分母是 0（全部失败或没跑）时回传 None：是「没有结果」，不是 0 分。"""
+    return round(part / whole, 3) if whole else None
+
+
+def run_llm(
+    kind: str, model: str, limit: int | None, personas: list[str] | None, workers: int, resume: Path | None = None
+):
     provider = build_provider(kind, model)
     cases = [c for c in CASES if not personas or c.persona in personas][: limit or None]
     names = sorted({c.persona for c in cases})
+    # --resume：沿用上次已成功的结果，只重跑失败或没跑到的部分（省模型额度）
+    old_cases: dict[str, dict] = {}
+    old_mats: dict[str, dict] = {}
+    if resume:
+        prev = json.loads(resume.read_text(encoding="utf-8"))
+        if (prev.get("provider"), prev.get("model")) != (kind, model):
+            raise SystemExit(f"--resume 的结果来自 {prev.get('provider')} / {prev.get('model')}，和这次的模型不同。")
+        old_cases = {r["id"]: r for r in prev.get("cases", []) if "error" not in r}
+        old_mats = {m["persona"]: m for m in prev.get("materials", []) if "error" not in m}
+        print(f"沿用上次结果：{len(old_cases)} 个案例、{len(old_mats)} 组材料")
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        case_results = list(pool.map(lambda c: eval_case(provider, c), cases))
-        mat_results = list(pool.map(lambda p: eval_materials(provider, p), names))
+        case_results = list(pool.map(lambda c: old_cases.get(c.id) or eval_case(provider, c), cases))
+        mat_results = list(pool.map(lambda p: old_mats.get(p) or eval_materials(provider, p), names))
         for r in case_results:
             print(f"  {r['id']}: {r.get('error') or (r['recommendation'], r['expected'], r['exclusions'])}")
 
     good = [r for r in case_results if "error" not in r]
     failures = [f"{r['id']}：{r['error']}" for r in case_results if "error" in r]
     failures += [f"materials {m['persona']}：{m['error']}" for m in mat_results if "error" in m]
-    field_acc = {f: round(sum(r["fields"][f] for r in good) / len(good), 3) if good else 0 for f in EXTRACT_FIELDS}
+    field_acc = {f: ratio(sum(r["fields"][f] for r in good), len(good)) for f in EXTRACT_FIELDS}
     rec_exact = sum(r["recommendation"] == r["expected"] for r in good)
     rec_near = sum(abs(LEVELS.index(r["recommendation"]) - LEVELS.index(r["expected"])) <= 1 for r in good)
     mats = [m for m in mat_results if "error" not in m]
@@ -299,18 +323,15 @@ def run_llm(kind: str, model: str, limit: int | None, personas: list[str] | None
     metrics = {
         "cases": {"total": len(cases), "ok": len(good)},
         "extraction": field_acc,
-        "exclusions": prf([(set(r["expected_exclusions"]), set(r["exclusions"])) for r in good]),
-        "recommendation": {
-            "exact": round(rec_exact / len(good), 3) if good else 0,
-            "within_one": round(rec_near / len(good), 3) if good else 0,
-        },
+        "exclusions": prf([(set(r["expected_exclusions"]), set(r["exclusions"])) for r in good]) if good else None,
+        "recommendation": {"exact": ratio(rec_exact, len(good)), "within_one": ratio(rec_near, len(good))},
         "materials": {
-            "cover_supported_ratio": round(sum(m["cover_supported"] for m in mats) / sentences, 3) if sentences else 0,
-            "cover_no_unsourced_numbers": round(sum(m["cover_unsourced_numbers"] == 0 for m in mats) / len(mats), 3)
-            if mats
-            else 0,
-            "qa_salary_flagged": round(sum(m["qa_salary_flagged"] for m in mats) / len(mats), 3) if mats else 0,
-            "qa_start_ok": round(sum(m["qa_start_ok"] for m in mats) / len(mats), 3) if mats else 0,
+            "ok": len(mats),
+            "total": len(names),
+            "cover_supported_ratio": ratio(sum(m["cover_supported"] for m in mats), sentences),
+            "cover_no_unsourced_numbers": ratio(sum(m["cover_unsourced_numbers"] == 0 for m in mats), len(mats)),
+            "qa_salary_flagged": ratio(sum(m["qa_salary_flagged"] for m in mats), len(mats)),
+            "qa_start_ok": ratio(sum(m["qa_start_ok"] for m in mats), len(mats)),
         },
     }
     for r in good:
@@ -340,9 +361,14 @@ def flatten(d: dict[str, Any], prefix: str = "") -> dict[str, float]:
 def check_thresholds(suite: str, metrics: dict[str, Any]) -> list[str]:
     thresholds = json.loads((ROOT / "thresholds.json").read_text(encoding="utf-8"))[suite]
     flat = flatten(metrics)
-    return [f"{k} = {flat.get(k)}，低于门槛 {v}" for k, v in thresholds.items() if k in flat and flat[k] < v] + [
-        f"{k} 没有结果" for k in thresholds if k not in flat
-    ]
+    problems = [f"{k} = {flat.get(k)}，低于门槛 {v}" for k, v in thresholds.items() if k in flat and flat[k] < v]
+    problems += [f"{k} 没有结果（全部失败或没跑到，不是 0 分）" for k in thresholds if k not in flat]
+    # 有案例没跑成时，分数只代表跑成的那部分，不能算通过
+    for group in ("cases", "materials"):
+        part = metrics.get(group) or {}
+        if part.get("ok", 0) < part.get("total", 0):
+            problems.append(f"{group} 不完整：只跑成 {part['ok']} / {part['total']}")
+    return problems
 
 
 def main() -> int:
@@ -353,13 +379,16 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=None, help="只跑前 N 个案例（llm 组）")
     ap.add_argument("--persona", action="append", help="只跑指定求职者，可重复（llm 组）")
     ap.add_argument("--workers", type=int, default=2)
+    ap.add_argument("--resume", type=Path, help="沿用某次 llm 结果档里已成功的部分，只重跑其余的")
     args = ap.parse_args()
 
     details: dict[str, Any] = {}
     if args.suite == "program":
         metrics, failures = run_program()
     else:
-        metrics, failures, details = run_llm(args.provider, args.model, args.limit, args.persona, args.workers)
+        metrics, failures, details = run_llm(
+            args.provider, args.model, args.limit, args.persona, args.workers, args.resume
+        )
     below = check_thresholds(args.suite, metrics)
 
     print(json.dumps(metrics, ensure_ascii=False, indent=2))

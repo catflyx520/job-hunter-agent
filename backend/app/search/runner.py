@@ -40,8 +40,8 @@ def create_run(db: Session, site_ids: list[str] | None = None, sponsor_history: 
     if resume is None:
         raise RunError("请先上传并设定一份使用中的履历。")
     prefs, version = load_preferences(db)
-    if not prefs.target_roles:
-        raise RunError("请先在「求职需求」填写目标职位。")
+    if not prefs.active_roles:
+        raise RunError("请先在「求职需求」填写目标职位，或至少启用一个。")
     q = select(JobSite).where(JobSite.access_method != "paste_only").order_by(JobSite.sort_order)
     sites = db.scalars(q.where(JobSite.id.in_(site_ids)) if site_ids is not None else q.where(JobSite.enabled)).all()
     if not sites:

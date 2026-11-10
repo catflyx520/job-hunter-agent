@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import ApplicationPanel from "./ApplicationControl";
+import { ConfirmButton, Loading, Spinner } from "./ui";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api, JobDetail as Job, SponsorStatus } from "../api";
 import {
@@ -31,7 +32,7 @@ export default function JobDetail() {
     load();
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (!job) return error ? <p className="error">{error}</p> : null;
+  if (!job) return error ? <p className="error">{error}</p> : <Loading />;
 
   const rescore = async () => {
     setBusy(true);
@@ -45,9 +46,9 @@ export default function JobDetail() {
     }
   };
 
+  // 删除 = 移到「已删除」（投递状态 dismissed，可还原）
   const remove = async () => {
-    if (!confirm(`删除「${job.title}」？`)) return;
-    await api.del(`/api/jobs/${job.id}`);
+    await api.put(`/api/jobs/${job.id}/application`, { status: "dismissed" });
     nav("/jobs");
   };
 
@@ -114,7 +115,9 @@ export default function JobDetail() {
               来源：{s.site_id} ↗
             </a>
           ))}
-          <button onClick={remove}>删除职位</button>
+          <ConfirmButton message={`删除「${job.title}」？会移到职位页的「已删除」，可以还原。`} onConfirm={remove}>
+            删除职位
+          </ConfirmButton>
         </div>
         <p className="muted">投递请自己到申请页面完成；本工具不会代你投递。</p>
       </div>
@@ -142,7 +145,7 @@ export default function JobDetail() {
         <div className="row" style={{ justifyContent: "space-between" }}>
           <h3 style={{ margin: 0 }}>匹配评分</h3>
           <button onClick={rescore} disabled={busy}>
-            {busy ? "评分中…" : m ? "重新评分" : "开始评分"}
+            {busy ? <><Spinner />评分中…</> : m ? "重新评分" : "开始评分"}
           </button>
         </div>
         {error && <p className="error">{error}</p>}
@@ -368,7 +371,7 @@ function SponsorPanel({ job, onChange }: { job: Job; onChange: (s: SponsorStatus
             })
           }
         >
-          {busy === "entity" ? "推测中…" : "AI 从官网推测法律实体"}
+          {busy === "entity" ? <><Spinner />推测中…</> : "AI 从官网推测法律实体"}
         </button>
         <label className="inline">
           <input

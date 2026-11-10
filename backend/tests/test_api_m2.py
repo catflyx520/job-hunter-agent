@@ -83,6 +83,16 @@ def test_match_without_chunks_uses_parsed_resume(client):
     assert any("尚未建立检索切块" in g["text"] for g in m["gaps"])
 
 
+def test_match_refuses_when_resume_has_nothing_to_cite(client):
+    rid = _setup(client, chunks=False)
+    parsed = client.get(f"/api/resumes/{rid}").json()["parsed"]
+    empty = {**parsed, "experience": [], "projects": [], "education": [], "skills": [], "summary": ""}
+    client.put(f"/api/resumes/{rid}/parsed", json={"parsed": empty, "confirm": False})
+    job = _ingest(client)["job"]
+    r = client.post(f"/api/jobs/{job['id']}/match")
+    assert r.status_code == 409 and "无法评分" in r.json()["detail"]  # 不给一个只有地点和新鲜度的假分数
+
+
 def test_ingest_requires_input_and_resume(client):
     assert client.post("/api/jobs/ingest", json={}).status_code == 422
     job = _ingest(client)["job"]

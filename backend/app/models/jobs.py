@@ -139,7 +139,9 @@ class SearchRun(Base):
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     status: Mapped[str] = mapped_column(Text, nullable=False)
     params: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
-    resume_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("resumes.id"), nullable=False)
+    resume_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("resumes.id", ondelete="SET NULL")
+    )
     preferences_version: Mapped[int] = mapped_column(Integer, nullable=False)
     graph_thread_id: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -184,7 +186,9 @@ class JobMatch(Base):
     job_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False
     )
-    resume_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("resumes.id"), nullable=False)
+    resume_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("resumes.id", ondelete="SET NULL")
+    )
     preferences_version: Mapped[int] = mapped_column(Integer, nullable=False)
     score: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     breakdown: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)

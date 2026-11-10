@@ -117,7 +117,7 @@ def score_match(
     ev_text = "\n".join(f"[{e.id}] ({e.section}) {e.text}" for e in evidence)
     jd = (job.jd_text or "")[:20_000]
     user = (
-        f"Target roles: {', '.join(prefs.target_roles) or 'not specified'}\n"
+        f"Target roles: {', '.join(prefs.active_roles) or 'not specified'}\n"
         f"Target seniority: {', '.join(prefs.seniority) or 'not specified'}\n\n"
         f"Job: {job.title} at {job.company.display_name}\nJD:\n<<<\n{jd}\n>>>\n\n"
         f"Resume evidence (cite by ID):\n{ev_text}"

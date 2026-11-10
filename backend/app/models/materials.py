@@ -43,7 +43,9 @@ class Material(Base):
     jd_source: Mapped[str] = mapped_column(Text, nullable=False)
     jd_text: Mapped[str | None] = mapped_column(Text)
     jd_sha256: Mapped[str | None] = mapped_column(Text)
-    resume_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("resumes.id"), nullable=False)
+    resume_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("resumes.id", ondelete="SET NULL")
+    )
     facts_used: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     status: Mapped[str] = mapped_column(Text, nullable=False)
     output_text: Mapped[str | None] = mapped_column(Text)
