@@ -1,5 +1,9 @@
+/// <reference types="vite/client" />
 // 后端 API 的型别与呼叫。型别对应 backend/app/schemas。
-import { lang } from "./i18n";
+import { lang, t } from "./i18n";
+
+// vite build --mode demo：没有后端，读 demo.ts 的假资料
+export const DEMO = import.meta.env.MODE === "demo";
 
 export type ProviderKind = "openai" | "anthropic" | "openai_compatible" | "ollama" | "claude_cli" | "codex_cli";
 
@@ -174,6 +178,10 @@ export interface FactTemplate {
 export class ApiError extends Error {}
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  if (DEMO) {
+    if (method !== "GET") throw new ApiError(t("演示模式只能查看。想完整使用，请下载到自己电脑上运行。"));
+    return (await import("./demo")).demoGet<T>(path);
+  }
   // 后端产生的说明、错误讯息、模型输出都跟着介面语言
   const init: RequestInit = { method, headers: { "X-UI-Lang": lang } };
   if (body instanceof FormData) {

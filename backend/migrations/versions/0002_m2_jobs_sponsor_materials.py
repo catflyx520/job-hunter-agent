@@ -21,7 +21,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 JOB_SITES = [
-    # id, name, access_method, sort_order, limitation_note（SPEC F3 3.1 预设清单）
+    # id, name, access_method, sort_order, limitation_note
     ("manual", "贴网址 / 贴 JD", "paste_only", 0, "永远可用"),
     ("linkedin", "LinkedIn", "web_search", 10, "不登录、不自动化操作；只拿得到公开职位页"),
     ("indeed", "Indeed", "web_search", 20, "常遇验证页，读不到就标记为来源不可用"),

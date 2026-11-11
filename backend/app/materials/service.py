@@ -36,7 +36,7 @@ class MaterialRequest:
 
 
 def resolve_jd(db: Session, req: MaterialRequest) -> tuple[str, str | None, Job | None]:
-    """JD 优先顺序（SPEC F4）：已存的完整 JD → 读取公开网址 → 贴上的 JD。读不到就请用户贴，不拿摘要充当完整 JD。"""
+    """JD 优先顺序：已存的完整 JD → 读取公开网址 → 贴上的 JD。读不到就请用户贴，不拿摘要充当完整 JD。"""
     job = db.get(Job, req.job_id) if req.job_id else None
     if req.job_id and job is None:
         raise MaterialError(tr("找不到这个职位。"))

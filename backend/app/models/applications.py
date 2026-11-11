@@ -1,4 +1,4 @@
-"""SPEC 4.4.3 F 组：投递追踪。状态由用户标记，app 不自动投递。"""
+"""F 组：投递追踪。状态由用户标记，app 不自动投递。"""
 
 import uuid
 from datetime import datetime

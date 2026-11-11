@@ -1,4 +1,4 @@
-"""SPEC 4.4.3 E 组：Cover letter 与申请问答。"""
+"""E 组：Cover letter 与申请问答。"""
 
 import uuid
 from datetime import datetime

@@ -1,4 +1,4 @@
-"""签证资料管线（SPEC F3b）：读取官方原始档 → 汇总 → 导入 Postgres。
+"""签证资料管线：读取官方原始档 → 汇总 → 导入 Postgres。
 
 支援的档案（档名决定类型与财年，与官方档名相同）：
 - DOL LCA：  LCA_Disclosure_Data_FY2025_Q4.xlsx   → program=lca（只计 VISA_CLASS = H-1B，按 CASE_NUMBER 去重）

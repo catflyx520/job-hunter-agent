@@ -1,4 +1,4 @@
-"""resume_review 图（SPEC 4.2）：可解析度（程序）、内容品质（LLM）、关键词（LLM + 程序）并行，最后合并。"""
+"""resume_review 图：可解析度（程序）、内容品质（LLM）、关键词（LLM + 程序）并行，最后合并。"""
 
 from __future__ import annotations
 

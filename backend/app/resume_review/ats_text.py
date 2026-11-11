@@ -1,4 +1,4 @@
-"""评分页面固定显示的 ATS 说明（SPEC F2 2.4，中英双语）。全文见 docs/ats-explained.md。"""
+"""评分页面固定显示的 ATS 说明（中英双语）。全文见 docs/ats-explained.md。"""
 
 ATS_EXPLAINED = {
     "zh": (

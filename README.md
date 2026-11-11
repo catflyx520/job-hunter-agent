@@ -2,7 +2,7 @@
 
 Open-source, local-first job hunting assistant. Connect your own model (API key / Ollama / your local Claude Code or Codex CLI), upload your resume and preferences, then paste jobs to get evidence-backed match scores, H-1B / green card employer history, and cover letter / application answer drafts. Automatic job search and application tracking come in later milestones.
 
-[Chinese](README.zh-CN.md) · Spec: [docs/SPEC.md](docs/SPEC.md)
+[Chinese](README.zh-CN.md)
 
 > Status: **M4 (local)** — model connections (incl. one-click CLI login), resume review, automatic job search across the sites you pick (public job pages on LinkedIn, Built In, YC and more, plus the public Greenhouse / Lever / Ashby APIs) → de-duplication, hard exclusions, match scores with resume evidence, H-1B / PERM employer history; paste a job URL / JD; cover letters and application answers (with screenshots); application tracking and a stats page. The app never applies to jobs, fills forms, or contacts employers for you.
 
@@ -69,6 +69,12 @@ uv run python ../scripts/sponsor_data/build.py        # aggregate and import int
 ```
 
 The official sites usually block scripted downloads (HTTP 403). The tool does not try to get around that: it prints the official URLs so you can download them in your browser. Keep the original file names and put the files in `data/sponsor/raw/`, then run `build.py`. History records never mean a job will sponsor you; each job page shows the JD's own policy separately.
+
+## Demo build
+
+The hosted website is only ever this demo. The full app is the one you download and run on your own computer.
+
+`cd frontend && corepack pnpm build:demo` writes a static, read-only site to `frontend/dist-demo/`. It needs no backend and shows made-up jobs with a synthetic resume. To show your own resume, first run `cd backend && uv run python ../scripts/export_demo_resume.py`, which removes the email and phone. The exported file stays out of git.
 
 ## Tests
 

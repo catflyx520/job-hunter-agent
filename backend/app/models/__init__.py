@@ -1,4 +1,4 @@
-"""SQLAlchemy 模型（SPEC 4.4.3）。A、B 组在本档；C、D、E 组在 jobs.py、sponsor.py、materials.py。"""
+"""SQLAlchemy 模型。A、B 组在本档；C、D、E 组在 jobs.py、sponsor.py、materials.py。"""
 
 import uuid
 from datetime import datetime

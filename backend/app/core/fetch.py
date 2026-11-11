@@ -1,4 +1,4 @@
-"""安全读取公开网页（SPEC F4「安全」）：只允许公开 HTTP/HTTPS，阻挡内网 / localhost / 保留 IP，
+"""安全读取公开网页：只允许公开 HTTP/HTTPS，阻挡内网 / localhost / 保留 IP，
 逐次检查重导向，连线固定到已检查过的 IP（防 DNS rebinding）。遇到登录或验证页就停止，不绕过。"""
 
 from __future__ import annotations

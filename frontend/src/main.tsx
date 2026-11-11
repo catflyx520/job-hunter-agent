@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
-import { api, JobPreferences, Provider, Resume } from "./api";
+import { api, DEMO, JobPreferences, Provider, Resume } from "./api";
 import { Loading } from "./pages/ui";
 import "./styles.css";
 import JobDetail from "./pages/JobDetail";
@@ -99,6 +99,9 @@ function App() {
           <NavLink to="/settings" className="model-link" title={t("模型连接")}>
             {t(model)}
           </NavLink>
+          <a className="model-link" href="https://github.com/catflyx520" target="_blank" rel="noreferrer noopener">
+            GitHub · catflyx520
+          </a>
           <div className="seg lang-switch" role="group" aria-label="Language / 语言">
             <button type="button" className={lang === "en" ? "on" : ""} aria-pressed={lang === "en"} onClick={() => setLang("en")}>
               EN
@@ -110,13 +113,19 @@ function App() {
         </div>
       </header>
       <main className={`page${narrow ? " narrow" : ""}`}>
+        {DEMO && (
+          <p className="notice" style={{ marginBottom: 16 }}>
+            {t("演示模式：职位、公司和统计都是虚构的样本，只能查看，不能修改。")}{" "}
+            <a href="https://github.com/catflyx520/job-hunter-agent" target="_blank" rel="noreferrer noopener">{t("下载完整版，在自己电脑上运行 ↗")}</a>
+          </p>
+        )}
         {blocked ? setup ? <SetupRequired setup={setup} /> : <Loading /> : <Routes>
           <Route path="/" element={<Navigate to="/jobs" replace />} />
           <Route path="/jobs" element={<Jobs />} />
           <Route path="/jobs/:id" element={<JobDetail />} />
           <Route path="/stats" element={<Stats />} />
           <Route path="/materials" element={<Materials />} />
-          <Route path="/resumes" element={<Resumes view="score" />} />
+          <Route path="/resumes" element={DEMO ? <Navigate to="/resumes/content" replace /> : <Resumes view="score" />} />
           <Route path="/resumes/content" element={<Resumes view="content" />} />
           <Route path="/resumes/versions" element={<ResumeVersions />} />
           <Route path="/resumes/upload" element={<ResumeUpload />} />

@@ -2,7 +2,7 @@
 
 开源、本地运行的求职助手：连接你自己的模型（API key / Ollama / 本机 Claude Code 或 Codex CLI），上传履历与求职需求，贴上职位就能得到引用履历证据的匹配评分、雇主 H-1B / 绿卡历史，以及 cover letter 与申请问答草稿。自动搜索与投递统计在后续里程碑加入。
 
-[英文版](README.md) · 规格：[docs/SPEC.md](docs/SPEC.md)
+[英文版](README.md)
 
 > 目前进度：**M4（本机）**：模型连接（含 CLI 一键登录）、履历评分、勾选网站自动搜索职位（LinkedIn、Built In、YC 等公开职位页 + Greenhouse / Lever / Ashby 公开 API）→ 去重、硬性排除、引用履历证据的匹配评分、H-1B / PERM 雇主历史；也可贴网址或 JD；cover letter 与申请问答（可附截图）；投递状态追踪与统计页。本 应用 不会自动投递、不会自动填表、不会代你联系雇主。
 
@@ -69,6 +69,12 @@ uv run python ../scripts/sponsor_data/build.py        # 汇总并导入数据库
 ```
 
 官方网站通常拒绝程序下载（HTTP 403），本工具不会绕过：它会列出官方网址，请用浏览器下载，档名不要改，放进 `data/sponsor/raw/` 后再执行 `build.py`。历史记录不代表职位会提供 sponsorship；职位页会另外显示 JD 自己写的政策。
+
+## 演示版本
+
+网上只放这个演示版本，正式版要下载到自己电脑上运行。
+
+`cd frontend && corepack pnpm build:demo` 会在 `frontend/dist-demo/` 生成只读的静态网站，不需要后端，内容是虚构的职位和合成履历。要显示自己的履历，先执行 `cd backend && uv run python ../scripts/export_demo_resume.py`，它会去掉邮箱和电话，导出的档案不进 git。
 
 ## 测试
 

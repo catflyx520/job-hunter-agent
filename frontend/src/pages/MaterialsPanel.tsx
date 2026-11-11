@@ -1,5 +1,5 @@
 import { ClipboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { api, Material } from "../api";
+import { api, DEMO, Material } from "../api";
 import { locale, t } from "../i18n";
 import { Seg, Spinner } from "./ui";
 
@@ -326,9 +326,11 @@ export function DraftView({ m, onSaved, header }: { m: Material; onSaved: (m: Ma
         <button type="button" onClick={copy}>
           {t("复制")}
         </button>
-        <a className="btn" href={`/api/materials/${m.id}/download`}>
-          {t("下载 TXT")}
-        </a>
+        {!DEMO && (
+          <a className="btn" href={`/api/materials/${m.id}/download`}>
+            {t("下载 TXT")}
+          </a>
+        )}
         {m.edited_text && (
           <button type="button" onClick={() => setText(m.output_text ?? "")} title={t("原始版本仍保留")}>
             {t("还原成模型原稿")}

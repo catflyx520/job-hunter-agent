@@ -1,4 +1,4 @@
-"""Evals（SPEC 第 6 节）。
+"""Evals。
 
 两组：
 - program（预设，CI 跑）：不呼叫模型，检查硬性排除规则、JD 原句核对、雇主名称正规化、cover letter 真实性检查。

@@ -131,6 +131,6 @@ def client(database, monkeypatch):
     for module in PROVIDER_LOOKUPS:
         monkeypatch.setattr(importlib.import_module(module), "provider_for_task", lambda db, task: fake)
     # 既有测试检查中文讯息；英文另有测试（test_i18n.py）
-    with TestClient(create_app(), headers={"X-UI-Lang": "zh"}) as c:
+    with TestClient(create_app(), base_url="http://localhost", headers={"X-UI-Lang": "zh"}) as c:
         c.fake = fake  # type: ignore[attr-defined]
         yield c

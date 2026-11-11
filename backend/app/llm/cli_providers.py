@@ -1,6 +1,6 @@
 """本机 CLI provider：以子进程调用用户自己安装并登录的 `claude` / `codex`。
 
-规则（SPEC F1）：
+规则：
 - 不读取、不保存、不转发任何登录凭证；登录由用户在终端自己完成。
 - 非交互、只做文字生成：停用所有工具、MCP、session 保存。
 - 逾时（预设 180 秒）与并行上限（预设 2）。
@@ -189,7 +189,7 @@ class CodexCliProvider(LLMProvider):
     kind = "codex_cli"
     label = "Codex CLI"
 
-    # 与旧项目相同：只留文字生成，停用 shell、外挂、浏览器等功能
+    # 只留文字生成，停用 shell、外挂、浏览器等功能
     DISABLED_FEATURES = (
         "shell_tool",
         "multi_agent",

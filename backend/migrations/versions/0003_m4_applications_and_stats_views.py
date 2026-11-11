@@ -16,7 +16,7 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-# SPEC 4.4.5：统计页不另存资料，用 view 计算
+# 统计页不另存资料，用 view 计算
 VIEWS = {
     "v_job_overview": """
 SELECT

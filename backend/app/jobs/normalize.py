@@ -39,7 +39,7 @@ def normalize_title(title: str) -> str:
 
 
 def canonical_key(company_norm: str, title: str, location: str, requisition_id: str = "") -> str:
-    """去重键（SPEC 3.1）：有 requisition ID 时用它，否则用「公司 + 正规化职称 + 地点」的杂凑。"""
+    """去重键：有 requisition ID 时用它，否则用「公司 + 正规化职称 + 地点」的杂凑。"""
     if requisition_id.strip():
         return f"req:{company_norm}:{requisition_id.strip().lower()}"
     raw = "|".join((company_norm, normalize_title(title), re.sub(r"[^a-z0-9]+", " ", location.lower()).strip()))

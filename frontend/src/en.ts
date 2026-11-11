@@ -746,4 +746,7 @@ export const EN: Record<string, string> = {
   "常遇验证页，读不到就标记为来源不可用": "often shows verification pages; marked unavailable when unreadable",
   "需要学校账号登录；只支援贴网址 / JD": "needs a school login; paste a URL or JD",
   "部分内容需登录": "some content needs a login",
+  "演示模式只能查看。想完整使用，请下载到自己电脑上运行。": "The demo is read-only. Download the app and run it on your computer for the full version.",
+  "下载完整版，在自己电脑上运行 ↗": "Download the full app to run on your computer ↗",
+  "演示模式：职位、公司和统计都是虚构的样本，只能查看，不能修改。": "Demo: jobs, companies and stats are made-up samples. Read-only.",
 };

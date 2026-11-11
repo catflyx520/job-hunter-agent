@@ -1,4 +1,4 @@
-"""SPEC 4.4.3 C 组：职位搜索与匹配。"""
+"""C 组：职位搜索与匹配。"""
 
 import uuid
 from datetime import datetime

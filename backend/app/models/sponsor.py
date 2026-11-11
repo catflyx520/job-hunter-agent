@@ -1,4 +1,4 @@
-"""SPEC 4.4.3 D 组：签证历史。"""
+"""D 组：签证历史。"""
 
 import uuid
 from datetime import datetime

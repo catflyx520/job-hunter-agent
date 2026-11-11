@@ -1,4 +1,4 @@
-"""Provider 统一介面（SPEC 4.3）。LangGraph 节点与业务逻辑只依赖这个模块。"""
+"""Provider 统一介面。LangGraph 节点与业务逻辑只依赖这个模块。"""
 
 from __future__ import annotations
 
