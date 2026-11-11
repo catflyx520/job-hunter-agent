@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, HashRouter, Link, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, DEMO, JobPreferences, Provider, Resume } from "./api";
 import { Loading } from "./pages/ui";
 import "./styles.css";
@@ -83,8 +83,8 @@ function App() {
       <header className="topbar">
         <div className="topbar-inner">
           <h1 className="brand">
-            <img src="/icon.svg" width="32" height="32" alt="" />
-            <img src="/wordmark.svg" width="208" height="29" alt="Job Hunter" />
+            <img src={`${import.meta.env.BASE_URL}icon.svg`} width="32" height="32" alt="" />
+            <img src={`${import.meta.env.BASE_URL}wordmark.svg`} width="208" height="29" alt="Job Hunter" />
           </h1>
           <nav className="nav" aria-label={t("主导航")}>
             <NavLink to="/jobs" end>
@@ -139,10 +139,13 @@ function App() {
   );
 }
 
+// Static demo navigation stays in the fragment so refresh needs no backend rewrite.
+const Router = DEMO ? HashRouter : BrowserRouter;
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <BrowserRouter>
+    <Router>
       <App />
-    </BrowserRouter>
+    </Router>
   </React.StrictMode>,
 );

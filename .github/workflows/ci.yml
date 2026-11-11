@@ -60,5 +60,9 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build
         run: pnpm build
+      - name: Build and check static demo under its public prefix
+        run: |
+          pnpm build:demo --base=/job-hunter/
+          node scripts/check-demo-export.mjs
       - name: Check translations
         run: node scripts/check-i18n.mjs

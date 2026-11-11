@@ -1,5 +1,7 @@
 # job-hunter-agent
 
+在线只读 Demo：[catfly.dev/job-hunter/](https://catfly.dev/job-hunter/)。职位、公司和履历为虚构样本，不连接后端、模型或数据库。完整功能请下载后在本机运行。
+
 开源、本地运行的求职助手：连接你自己的模型（API key / Ollama / 本机 Claude Code 或 Codex CLI），上传履历与求职需求，贴上职位就能得到引用履历证据的匹配评分、雇主 H-1B / 绿卡历史，以及 cover letter 与申请问答草稿。自动搜索与投递统计在后续里程碑加入。
 
 [英文版](README.md)

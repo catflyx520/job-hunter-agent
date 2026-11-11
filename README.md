@@ -72,9 +72,15 @@ The official sites usually block scripted downloads (HTTP 403). The tool does no
 
 ## Demo build
 
+Public demo: [catfly.dev/job-hunter/](https://catfly.dev/job-hunter/).
+
 The hosted website is only ever this demo. The full app is the one you download and run on your own computer.
 
 `cd frontend && corepack pnpm build:demo` writes a static, read-only site to `frontend/dist-demo/`. It needs no backend and shows made-up jobs with a synthetic resume. To show your own resume, first run `cd backend && uv run python ../scripts/export_demo_resume.py`, which removes the email and phone. The exported file stays out of git.
+
+For a subdirectory, use `pnpm build:demo --base=/job-hunter/`. Demo navigation uses URL fragments (for example `#/jobs`), so refreshing a detail or stats page works on static hosting. The full local app keeps its normal browser routes. `node scripts/check-demo-export.mjs` checks the prefixed build and rejects a personal resume export for public CI.
+
+The public release is built from a pinned commit by the private Portfolio repository and published with its existing GitHub OIDC role to the existing private S3 bucket behind CloudFront. This repository has no AWS deployment credentials or permissions. Only `dist-demo/` is published: no backend, database, model calls, CLI login, real job search or application submissions. Updating this repository runs CI; update the pinned commit in the Portfolio publishing workflow to release a new demo. Portfolio's retained deployment artifact includes the demo for rollback.
 
 ## Tests
 

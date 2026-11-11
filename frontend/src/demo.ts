@@ -41,9 +41,9 @@ const SAMPLE_RESUME: ParsedResume = {
 // 部署时放在 public/ 的履历（不进 git）；没有就用合成履历
 let resumeFile: Promise<ParsedResume> | undefined;
 const loadResume = () =>
-  (resumeFile ??= fetch("/demo-resume.json")
+  (resumeFile ??= import.meta.env.DEMO_RESUME_AVAILABLE ? fetch(`${import.meta.env.BASE_URL}demo-resume.json`)
     .then((r) => r.json() as Promise<ParsedResume>)
-    .catch(() => SAMPLE_RESUME));
+    .catch(() => SAMPLE_RESUME) : Promise.resolve(SAMPLE_RESUME));
 
 interface Row {
   title: string;

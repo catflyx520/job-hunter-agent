@@ -1,12 +1,12 @@
 {
   "name": "Job Hunter Agent",
   "short_name": "Job Hunter",
-  "start_url": "/",
+  "start_url": "./",
   "display": "browser",
   "theme_color": "#5b2eff",
   "background_color": "#f5f5f0",
   "icons": [
-    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
   ]
 }
