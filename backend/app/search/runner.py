@@ -62,6 +62,7 @@ def create_run(db: Session, site_ids: list[str] | None = None, sponsor_history: 
             ],
             "preferences": prefs.model_dump(),
             "total_limit": prefs.search.total_limit,
+            "target_jobs": prefs.search.target_jobs,
             "sponsor_history": sponsor_history,
             "search_source": source_label,
         },

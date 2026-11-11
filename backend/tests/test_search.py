@@ -362,3 +362,113 @@ def test_removed_job_page_is_excluded_as_expired(search_client, monkeypatch):
         PAGES["https://linkedin.com/jobs/view/backend-engineer-at-northwind-1111111111"] = make_jd(
             "Backend Engineer", "Northwind Labs", "Los Angeles, CA"
         )
+
+
+# ---------- 目标可投职位数 ----------
+
+
+def _graph_process(monkeypatch, outcomes, first, more=(), target=2, cap=100):
+    """不碰数据库地跑 process 节点：outcomes 是网址 → 结果；more 是每一轮补搜找到的网址。"""
+    import app.graphs.search as g
+
+    processed, excludes = [], []
+    rounds = iter(more)
+
+    def fake_process(run_id, lead, prefs, sponsor):
+        processed.append(lead.url)
+        return g.LeadResult(lead.site_id, lead.url, outcomes[lead.url], job_id=lead.url)
+
+    def fake_discover(site, prefs, exclude=()):
+        excludes.append(set(exclude))
+        urls = next(rounds, [])
+        return g.SiteReport(site["id"], "ok", [g.Lead(site["id"], u) for u in urls])
+
+    monkeypatch.setattr(g, "process_lead", fake_process)
+    monkeypatch.setattr(g, "discover_site", fake_discover)
+    out = g.process(
+        {
+            "run_id": "t",
+            "params": {
+                "sites": [{"id": "linkedin", "name": "LinkedIn", "access_method": "web_search", "max_results": 20}],
+                "preferences": PREFS,
+                "total_limit": cap,
+                "target_jobs": target,
+            },
+            "reports": [g.SiteReport("linkedin", "ok", [g.Lead("linkedin", u) for u in first])],
+        }
+    )
+    return processed, excludes, out
+
+
+def test_excluded_jobs_do_not_count_toward_target(monkeypatch):
+    outcomes = {"https://a/1": "excluded", "https://a/2": "kept", "https://a/3": "excluded", "https://a/4": "kept", "https://a/5": "kept"}  # fmt: skip
+    processed, excludes, out = _graph_process(monkeypatch, outcomes, list(outcomes))
+    assert processed == ["https://a/1", "https://a/2", "https://a/3", "https://a/4"]  # 凑到 2 个就停
+    assert [r.outcome for r in out["results"]].count("kept") == 2
+    assert [r.url for r in out["results"] if r.outcome == "not_needed"] == ["https://a/5"]
+    assert excludes == []  # 够了就不再搜
+
+
+def test_searches_again_when_leads_run_out(monkeypatch):
+    outcomes = {"https://a/1": "excluded", "https://a/2": "kept", "https://a/3": "kept"}
+    processed, excludes, out = _graph_process(
+        monkeypatch, outcomes, ["https://a/1", "https://a/2"], more=[["https://a/3"]]
+    )
+    assert processed == ["https://a/1", "https://a/2", "https://a/3"]
+    assert excludes == [{"https://a/1", "https://a/2"}]  # 补搜时避开看过的
+    assert [len(r.leads) for r in out["reports"]] == [1]
+
+
+def test_stops_when_search_finds_nothing_new_or_hits_cap(monkeypatch):
+    outcomes = {f"https://a/{i}": "excluded" for i in range(5)}
+    processed, excludes, _ = _graph_process(monkeypatch, outcomes, ["https://a/0"], more=[["https://a/0"]])
+    assert processed == ["https://a/0"] and len(excludes) == 1  # 没有新线索就结束，不会空转
+
+    processed, _, out = _graph_process(monkeypatch, outcomes, list(outcomes), cap=3)
+    assert len(processed) == 3  # 安全上限
+    assert [r.outcome for r in out["results"]].count("over_limit") == 2
+
+
+def test_extra_rounds_are_limited(monkeypatch):
+    outcomes = {f"https://a/{i}": "excluded" for i in range(9)}
+    more = [[f"https://a/{i}"] for i in range(1, 9)]
+    processed, excludes, _ = _graph_process(monkeypatch, outcomes, ["https://a/0"], more=more)
+    assert len(excludes) == 2 and len(processed) == 3
+
+
+def test_interleave_takes_turns_between_sites():
+    import app.graphs.search as g
+
+    reports = [
+        g.SiteReport("a", "ok", [g.Lead("a", "https://a/1"), g.Lead("a", "https://a/2")]),
+        g.SiteReport("b", "ok", [g.Lead("b", "https://b/1"), g.Lead("b", "https://a/1")]),
+    ]
+    assert [x.url for x in g.interleave(reports, set())] == ["https://a/1", "https://b/1", "https://a/2"]
+
+
+def test_merge_reports_keeps_one_row_per_site():
+    import app.graphs.search as g
+
+    merged = g.merge_reports(
+        [g.SiteReport("a", "ok", [g.Lead("a", "u1")], "first"), g.SiteReport("a", "ok", [g.Lead("a", "u2")], "more")]
+    )
+    assert len(merged) == 1 and len(merged[0].leads) == 2 and merged[0].message == "first"
+
+
+def test_target_limits_kept_jobs_end_to_end(search_client):
+    c = search_client
+    c.put("/api/preferences", json={**PREFS, "search": {"target_jobs": 1}})
+    run_id = c.post("/api/search-runs", json={}).json()["id"]
+    run = c.get(f"/api/search-runs/{run_id}").json()
+    assert run["status"] == "completed", run["error"]
+    assert run["counts"]["kept"] == 1 and run["target_jobs"] == 1
+
+
+def test_search_workers_use_the_request_language(search_client):
+    c = search_client
+    c.fake.calls.clear()
+    c.post("/api/search-runs", json={}, headers={"X-UI-Lang": "zh"})  # 预设是英文，用中文才验得出来
+    prompts = [
+        m.content for msgs, _, _ in c.fake.calls for m in msgs if m.role == "system" and "fits a job" in m.content
+    ]
+    assert prompts and all("in Simplified Chinese" in p for p in prompts)

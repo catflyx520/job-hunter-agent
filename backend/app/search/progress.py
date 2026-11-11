@@ -17,7 +17,8 @@ def begin(run_id: str, site_ids: list[str]) -> None:
             "sites": {s: "searching" for s in site_ids},
             "found": {},
             "total": 0,
-            "done": 0,
+            "done": 0,  # 已找到的可投职位
+            "checked": 0,  # 已检查的职位页
             "outcomes": {},
         }
 
@@ -28,6 +29,14 @@ def site_done(run_id: str, site_id: str, status: str, found: int) -> None:
         if p:
             p["sites"][site_id] = status
             p["found"][site_id] = found
+
+
+def site_more(run_id: str, site_id: str, found: int) -> None:
+    """补搜又找到的线索。"""
+    with _lock:
+        p = _progress.get(run_id)
+        if p:
+            p["found"][site_id] = p["found"].get(site_id, 0) + found
 
 
 def start_processing(run_id: str, total: int) -> None:
@@ -41,8 +50,15 @@ def lead_done(run_id: str, outcome: str) -> None:
     with _lock:
         p = _progress.get(run_id)
         if p:
-            p["done"] += 1
+            p["checked"] += 1
             p["outcomes"][outcome] = p["outcomes"].get(outcome, 0) + 1
+
+
+def set_kept(run_id: str, kept: int) -> None:
+    with _lock:
+        p = _progress.get(run_id)
+        if p:
+            p["done"] = kept
 
 
 def finish(run_id: str) -> None:

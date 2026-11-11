@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -52,6 +52,12 @@ def make_chunks(parsed: ParsedResume) -> list[Chunk]:
     return chunks
 
 
+def rebuild_confirmed(db: Session, provider: LLMProvider) -> int:
+    """换了 embedding 模型后，已确认的履历都要重算（不同模型的向量不能互相比较）。回传切块总数。"""
+    resumes = db.scalars(select(Resume).where(Resume.parsed_confirmed_at.is_not(None))).all()
+    return sum(rebuild_chunks(db, r, provider) for r in resumes)
+
+
 def rebuild_chunks(db: Session, resume: Resume, provider: LLMProvider) -> int:
     """删掉旧切块，重新切块与计算向量。维度不符时报错，不写入半套资料。"""
     chunks = make_chunks(ParsedResume.model_validate(resume.parsed))
@@ -62,7 +68,7 @@ def rebuild_chunks(db: Session, resume: Resume, provider: LLMProvider) -> int:
     if vectors and len(vectors[0]) != dim:
         raise LLMError(
             tr(
-                "embedding 模型输出 {v} 维，但数据库设定为 {dim} 维（EMBEDDING_DIM）。请换模型，或修改 EMBEDDING_DIM 后执行 reindex。",
+                "embedding 模型输出 {v} 维，但数据库的向量栏位是 {dim} 维。请换成 {dim} 维的模型（例如 OpenAI 的 text-embedding-3-small）。",
                 v=len(vectors[0]),
                 dim=dim,
             )

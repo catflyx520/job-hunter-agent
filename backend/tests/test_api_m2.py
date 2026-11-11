@@ -136,9 +136,9 @@ def test_cover_letter_with_truth_check(client):
     assert "40" in items  # 来源不明的数字
     assert "start date" in items  # 占位符
     assert any(c["supported"] is False for c in m["citations"])
-    # 只有已确认的事实会给模型
+    # 事实库已停用：即使有已确认的事实也不给模型
     prompt = client.fake.calls[-1][0][-1].content
-    assert "2 weeks" in prompt and "150k" not in prompt
+    assert "2 weeks" not in prompt and "150k" not in prompt
 
     # 编辑另存，保留原文
     r = client.patch(f"/api/materials/{m['id']}", json={"edited_text": "My edited letter."})

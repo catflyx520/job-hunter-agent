@@ -57,7 +57,8 @@ class Blacklist(BaseModel):
 class SearchSettings(BaseModel):
     sites: list[str] = Field(default_factory=list)  # job_sites.id，M3 才使用
     per_site_limit: int = Field(20, ge=1, le=100)
-    total_limit: int = Field(100, ge=1, le=500)
+    target_jobs: int = Field(20, ge=1, le=200)  # 目标：找到几个可投的职位（被排除、之前已有的不算）
+    total_limit: int = Field(100, ge=1, le=500)  # 安全上限：一次搜索最多检查几个职位页
 
 
 class JobPreferences(BaseModel):

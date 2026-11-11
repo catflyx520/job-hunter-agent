@@ -262,11 +262,16 @@ export default function Preferences() {
       </div>
 
       <div className="form-group">
-        <div className="form-name">{t("搜索总上限")}</div>
+        <div className="form-name">{t("目标可投职位数")}</div>
         <div className="row">
-          <input aria-label={t("搜索总上限")} type="number" value={prefs.search.total_limit} onChange={(e) => set({ search: { ...prefs.search, total_limit: Number(e.target.value) } })} style={{ width: 96 }} />
+          <input aria-label={t("目标可投职位数")} type="number" min={1} max={200} value={prefs.search.target_jobs} onChange={(e) => set({ search: { ...prefs.search, target_jobs: Number(e.target.value) } })} style={{ width: 96 }} />
+          <span className="muted">{t("找到这么多个可投的职位就停；被排除、之前已有的不算。")}</span>
+        </div>
+        <div className="form-name">{t("最多检查")}</div>
+        <div className="row">
+          <input aria-label={t("最多检查")} type="number" value={prefs.search.total_limit} onChange={(e) => set({ search: { ...prefs.search, total_limit: Number(e.target.value) } })} style={{ width: 96 }} />
           <span className="muted">
-            {t("每次搜索最多处理几个职位，每个约 20–40 秒。网站与单站上限在")}<Link to="/jobs">{t("职位页")}</Link>{t("的“来源”里设定。")}
+            {t("安全上限：一次搜索最多检查几个职位页，每个约 20–40 秒，到了就停。网站与单站上限在")}<Link to="/jobs">{t("职位页")}</Link>{t("的“来源”里设定。")}
           </span>
         </div>
       </div>

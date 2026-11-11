@@ -25,3 +25,6 @@ Thumbs.db
 
 # Evals 结果（本机产生）
 evals/results/
+
+# 本机产物与本机工具设定
+output/

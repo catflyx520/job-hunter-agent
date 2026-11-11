@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import ApplicationPanel from "./ApplicationControl";
+import { JobMaterials, MaterialKind } from "./MaterialsPanel";
 import { ConfirmButton, Loading, Spinner } from "./ui";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, JobDetail as Job, SponsorStatus } from "../api";
 import {
   EMPLOYMENT,
@@ -23,7 +24,10 @@ const SEVERITY = { low: t("低"), medium: t("中"), high: t("高") };
 export default function JobDetail() {
   const { id } = useParams();
   const nav = useNavigate();
-  const notes = (useLocation().state as { notes?: string[] } | null)?.notes;
+  const location = useLocation();
+  const notes = (location.state as { notes?: string[] } | null)?.notes;
+  const [params] = useSearchParams();
+  const material = params.get("material") === "qa" ? "qa" : "cover_letter";
   const [job, setJob] = useState<Job | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -32,6 +36,12 @@ export default function JobDetail() {
   useEffect(() => {
     load();
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 从职位卡的「生成 Cover Letter / 申请问答」进来：读完后捲到申请材料
+  const wantMaterials = location.hash === "#materials";
+  useEffect(() => {
+    if (job && wantMaterials) document.getElementById("materials")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [job?.id, wantMaterials, material]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!job) return error ? <p className="error">{error}</p> : <Loading />;
 
@@ -125,6 +135,8 @@ export default function JobDetail() {
 
       <ApplicationPanel jobId={job.id} />
 
+      <JobMaterials jobId={job.id} initialKind={material as MaterialKind} hasJd={!!job.jd_text} />
+
       {(job.exclusion.reasons.length > 0 || job.exclusion.flags.length > 0) && (
         <div className="card">
           <h3>{t("硬性排除")}</h3>
@@ -159,9 +171,10 @@ export default function JobDetail() {
               <span className={`badge ${RECOMMENDATION[m.recommendation].cls}`}>{RECOMMENDATION[m.recommendation].text}</span>
               <span className="muted">{t("分数是「契合度估计」，不是录取概率。")}</span>
             </div>
+            {!m.breakdown.role && <p className="muted small">{t("这是旧项目的评分，没有分项。")}</p>}
             <table style={{ marginTop: 8 }}>
               <tbody>
-                {(Object.keys(PART_LABEL) as (keyof typeof PART_LABEL)[]).map((k) => (
+                {m.breakdown.role && (Object.keys(PART_LABEL) as (keyof typeof PART_LABEL)[]).map((k) => (
                   <tr key={k}>
                     <td style={{ width: 140 }}>{PART_LABEL[k]}</td>
                     <td style={{ width: 70 }}>

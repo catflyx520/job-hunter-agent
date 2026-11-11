@@ -190,6 +190,7 @@ class SearchRunOut(BaseModel):
     error: str | None
     search_source: str | None
     sponsor_history: bool
+    target_jobs: int | None = None  # 这次搜索的目标可投职位数（旧批次为空）
     sites: list[RunSiteOut]
     progress: dict[str, Any] | None = None
     counts: dict[str, int] = Field(default_factory=dict)

@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, ApplicationStatus, JobPreferences, AtsBoard, JobDetail, JobSite, JobSummary, RunJob, SearchRun, SearchRunDetail, SearchSource } from "../api";
 import { StatusSelect } from "./ApplicationControl";
@@ -116,7 +116,7 @@ const bucketOf = (j: JobRow): Exclude<Bucket, "all"> =>
 function runLabel(r: SearchRun) {
   const d = new Date(r.started_at ?? r.created_at);
   const time = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  return `${time} · ${RUN_STATUS[r.status].text}${r.counts.kept != null ? ` · ${t("保留 {n}", { n: r.counts.kept })}` : ""}`;
+  return `${time} · ${RUN_STATUS[r.status].text}${r.counts.kept != null ? ` · ${t("保留 {n}", { n: r.target_jobs ? `${r.counts.kept} / ${r.target_jobs}` : r.counts.kept })}` : ""}`;
 }
 
 function linkify(text: string): ReactNode[] {
@@ -211,6 +211,8 @@ export default function Jobs() {
   const reloadJobs = (message: string) => {
     setNotice(message);
     setStatusOf({});
+    // 拉黑写进了求职需求；不重读的话，下次保存 tag 或目标数会用旧资料盖掉它
+    api.get<{ data: JobPreferences }>("/api/preferences").then((p) => setPrefs(p.data)).catch(() => undefined);
     (view === ALL_SAVED ? loadSaved() : loadRun()).catch((e) => setError(e.message));
   };
 
@@ -255,6 +257,18 @@ export default function Jobs() {
     }
   };
 
+  // 目标可投职位数：直接保存到求职需求
+  const saveTarget = async (target_jobs: number) => {
+    if (!prefs || target_jobs === prefs.search.target_jobs) return;
+    setError("");
+    try {
+      const r = await api.put<{ data: JobPreferences }>("/api/preferences", { ...prefs, search: { ...prefs.search, target_jobs } });
+      setPrefs(r.data);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   const start = async () => {
     setError("");
     setStarting(true);
@@ -281,8 +295,7 @@ export default function Jobs() {
   };
 
   const chosen = sites.filter((s) => s.enabled && s.access_method !== "paste_only");
-  const perJob = chosen.reduce((n, s) => n + s.max_results, 0);
-  const estimate = Math.min(perJob, prefs?.search.total_limit ?? perJob);
+  const target = prefs?.search.target_jobs ?? 20;
   const busy = (runs ?? []).some((r) => r.status === "pending" || r.status === "running");
   const boardCount = sites.reduce((n, s) => n + (s.access_method === "ats_api" ? s.boards : 0), 0);
 
@@ -317,7 +330,7 @@ export default function Jobs() {
     ? p?.phase === "searching"
       ? t("正在各网站搜索…")
       : t("{ok} 个正常 · {bad} 个有问题", { ok: run!.sites.length - bad, bad })
-    : t("{n} 个来源 · 最多 {max} 个", { n: chosen.length, max: estimate });
+    : t("{n} 个来源 · 目标 {target} 个可投", { n: chosen.length, target });
 
   return (
     <div className="stack">
@@ -373,7 +386,7 @@ export default function Jobs() {
               <span className="cell-label">{t("来源 ▾")}</span>
               <span className="cell-value">{sourceSummary}</span>
             </button>
-            {pop.open === "sources" && <SourcesPanel sites={sites} run={active ? run : null} boardCount={boardCount} onUpdate={updateSite} onBoardsChanged={loadSites} />}
+            {pop.open === "sources" && <SourcesPanel sites={sites} run={active ? run : null} boardCount={boardCount} target={target} onTarget={saveTarget} onUpdate={updateSite} onBoardsChanged={loadSites} />}
           </div>
           <label className="cell">
             <input type="checkbox" checked={sponsor} onChange={(e) => setSponsor(e.target.checked)} />
@@ -446,6 +459,14 @@ export default function Jobs() {
       </section>
 
       {run?.error && <p className="error">{run.error}</p>}
+      {run?.status === "completed" && run.target_jobs != null && (run.counts.kept ?? 0) < run.target_jobs && (
+        <p className="notice">
+          {t("这次只找到 {kept} 个可投职位（目标 {target} 个）：各网站能找到的职位都检查完了。可以多勾几个来源，或放宽求职条件后再搜一次。", {
+            kept: run.counts.kept ?? 0,
+            target: run.target_jobs,
+          })}
+        </p>
+      )}
 
       <section className="stack" aria-label={t("职位列表")}>
         {visible.map((j) => (
@@ -483,7 +504,7 @@ export default function Jobs() {
               </div>
               <b className="progress-pct">{searching ? "—" : `${pct}%`}</b>
             </div>
-            <div className="muted small">{searching ? t("还在找职位网址，找完才知道总数") : t("已处理 {done} / {total} 个职位", { done: p?.done ?? 0, total: p?.total ?? 0 })}</div>
+            <div className="muted small">{searching ? t("还在找职位网址，找完才知道总数") : t("已找到 {done} / {total} 个可投职位 · 已检查 {checked} 个", { done: p?.done ?? 0, total: p?.total ?? 0, checked: p?.checked ?? 0 })}</div>
           </div>
         )}
       </section>
@@ -495,16 +516,21 @@ function SourcesPanel({
   sites,
   run,
   boardCount,
+  target,
+  onTarget,
   onUpdate,
   onBoardsChanged,
 }: {
   sites: JobSite[];
   run: SearchRunDetail | null;
   boardCount: number;
+  target: number;
+  onTarget: (n: number) => void;
   onUpdate: (id: string, patch: Partial<Pick<JobSite, "enabled" | "max_results">>) => void;
   onBoardsChanged: () => void;
 }) {
   const [boards, setBoards] = useState(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
   if (boards) {
     return (
       <div className="pop">
@@ -519,6 +545,28 @@ function SourcesPanel({
   }
   return (
     <div className="pop">
+      <label className="inline">
+        <span style={{ flex: 1 }}>
+          <b>{t("目标可投职位数")}</b>
+          <span className="muted small" style={{ display: "block" }}>
+            {t("找到这么多个可投的职位就停；被排除、之前已有的不算。")}
+          </span>
+        </span>
+        <input
+          aria-label={t("目标可投职位数")}
+          type="number"
+          min={1}
+          max={200}
+          defaultValue={target}
+          onChange={(e) => {
+            // 不用 onBlur：点外面时弹窗先关掉，blur 不会触发
+            const n = Number(e.target.value);
+            clearTimeout(saveTimer.current);
+            if (Number.isInteger(n) && n >= 1 && n <= 200) saveTimer.current = setTimeout(() => onTarget(n), 300);
+          }}
+          style={{ width: 80 }}
+        />
+      </label>
       <div>
         {sites.map((s) => {
           const live = run?.sites.find((x) => x.site_id === s.id);
@@ -546,7 +594,7 @@ function SourcesPanel({
                 </span>
               </label>
               {!pasteOnly && (
-                <label className="inline">
+                <label className="inline" title={t("每一轮最多从这个网站拿几个职位页")}>
                   {t("上限")}
                   <input
                     type="number"
@@ -727,8 +775,8 @@ function JobCard({
           <div>
             {m && (
               <>
-                <h3>{t("分项")}</h3>
-                {(Object.keys(PART_LABEL) as (keyof typeof PART_LABEL)[]).map((k) => (
+                {m.breakdown.role && <h3>{t("分项")}</h3>}
+                {m.breakdown.role && (Object.keys(PART_LABEL) as (keyof typeof PART_LABEL)[]).map((k) => (
                   <div className="part" key={k} title={m.breakdown[k].reason}>
                     <div className="part-head">
                       <span>{PART_LABEL[k]}</span>
@@ -775,10 +823,10 @@ function JobCard({
               {t("打开职位 / 自行申请 ↗")}
             </a>
           )}
-          <button type="button" onClick={() => nav(`/materials?job=${job.id}&kind=cover_letter`)}>
+          <button type="button" onClick={() => nav(`/jobs/${job.id}?material=cover_letter#materials`)}>
             {t("生成 Cover Letter")}
           </button>
-          <button type="button" onClick={() => nav(`/materials?job=${job.id}&kind=qa`)}>
+          <button type="button" onClick={() => nav(`/jobs/${job.id}?material=qa#materials`)}>
             {t("申请问答")}
           </button>
           {!deleted && (status === null || status === "saved") && (

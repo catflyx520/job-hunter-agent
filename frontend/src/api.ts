@@ -29,6 +29,8 @@ export interface TaskRoute {
   label: string;
   provider_id: string | null;
   model: string | null;
+  chunk_count?: number | null;
+  chunk_error?: string | null;
 }
 
 export type CliAuthState = "not_installed" | "signed_in" | "signed_out" | "invalid" | "unknown";
@@ -148,7 +150,7 @@ export interface JobPreferences {
     needs_sponsorship_future: boolean | null;
     note: string;
   };
-  search: { sites: string[]; per_site_limit: number; total_limit: number };
+  search: { sites: string[]; per_site_limit: number; total_limit: number; target_jobs: number };
 }
 
 export type VisaStatus = "us_citizen" | "green_card" | "h1b" | "opt" | "other";
@@ -311,7 +313,8 @@ export interface SearchRun {
   search_source: string | null;
   sponsor_history: boolean;
   sites: RunSite[];
-  progress: { phase: string; total: number; done: number; outcomes: Record<string, number> } | null;
+  target_jobs: number | null;
+  progress: { phase: string; total: number; done: number; checked: number; outcomes: Record<string, number> } | null;
   counts: Record<string, number>;
 }
 

@@ -204,6 +204,8 @@ def match_job(db: Session, job: Job) -> JobMatch:
     resume = db.scalar(select(Resume).where(Resume.is_active.is_(True)))
     if resume is None:
         raise IngestError(tr("请先上传并设定一份使用中的履历。"))
+    if not (job.jd_text or "").strip():
+        raise IngestError(tr("这个职位没有存 JD，无法评分。"))
     prefs, version = load_preferences(db)
     exclusion = check_exclusions(job, prefs)
     ex = job.extracted or {}

@@ -210,6 +210,7 @@ def _run_out(db: Session, run: SearchRun) -> dict:
         "error": run.error,
         "search_source": run.params.get("search_source"),
         "sponsor_history": run.params.get("sponsor_history", True),
+        "target_jobs": run.params.get("target_jobs"),
         "sites": _sites_out(db, run),
         "progress": progress.snapshot(run.id),
         "counts": counts,

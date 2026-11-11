@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import Protocol
 
 import httpx
@@ -39,14 +40,19 @@ class SearchLeads(BaseModel):
     )
 
 
+MAX_EXCLUDE_IN_PROMPT = 80
+
+
 class Searcher(Protocol):
     label: str
 
-    def search_site(self, site_id: str, site_name: str, prefs: JobPreferences, limit: int) -> SiteReport: ...
+    def search_site(
+        self, site_id: str, site_name: str, prefs: JobPreferences, limit: int, exclude: Collection[str] = ()
+    ) -> SiteReport: ...
 
 
-def collect(site_id: str, found: list[FoundJob], limit: int) -> tuple[list[Lead], int]:
-    """只留这个网站的单一职位页网址，去重并截到上限。回传 (线索, 被丢掉的网址数)。"""
+def collect(site_id: str, found: list[FoundJob], limit: int, exclude: Collection[str] = ()) -> tuple[list[Lead], int]:
+    """只留这个网站的单一职位页网址，去重并截到上限；exclude 是已经看过的网址。回传 (线索, 被丢掉的网址数)。"""
     leads: dict[str, Lead] = {}
     dropped = 0
     for f in found:
@@ -55,7 +61,7 @@ def collect(site_id: str, found: list[FoundJob], limit: int) -> tuple[list[Lead]
             dropped += 1
             continue
         url = clean_url(f.url)
-        if url in leads or len(leads) >= limit:
+        if url in exclude or url in leads or len(leads) >= limit:
             continue
         leads[url] = Lead(
             site_id=site_id,
@@ -109,8 +115,10 @@ class LLMSearcher:
         self.provider = provider
         self.label = f"{provider.kind} · {provider.model}"
 
-    def search_site(self, site_id, site_name, prefs, limit):
+    def search_site(self, site_id, site_name, prefs, limit, exclude=()):
         rules = SITE_RULES[site_id]
+        mine = [u for u in exclude if match_job_url(site_id, u)][:MAX_EXCLUDE_IN_PROMPT]
+        seen = ("\nAlready seen, find different postings instead of these:\n" + "\n".join(mine)) if mine else ""
         user = (
             f"Site: {site_name} (search within: {', '.join(rules['domains'])})\n"
             f"Job page URL example: {URL_EXAMPLES.get(site_id, '')}\n"
@@ -119,7 +127,7 @@ class LLMSearcher:
             f"Locations in priority order: {', '.join(search_locations(prefs))}\n"
             f"Work modes: {', '.join(prefs.work_modes) or 'any'}\n"
             f"Employment types: {', '.join(prefs.employment_types) or 'any'}\n"
-            f"Return up to {limit} jobs."
+            f"Return up to {limit} jobs.{seen}"
         )
         result = self.provider.generate(
             [Message("system", SEARCH_SYSTEM.replace("{OUTPUT_LANGUAGE}", output_language())), Message("user", user)],
@@ -128,7 +136,7 @@ class LLMSearcher:
         )
         parsed = result.parsed
         assert isinstance(parsed, SearchLeads)
-        leads, dropped = collect(site_id, parsed.jobs, limit)
+        leads, dropped = collect(site_id, parsed.jobs, limit, exclude)
         note = parsed.note.strip()
         if dropped:
             note = (note + " " if note else "") + tr(
@@ -145,21 +153,22 @@ class _QuerySearcher:
     def _query(self, query: str, domain: str) -> list[FoundJob]:
         raise NotImplementedError
 
-    def search_site(self, site_id, site_name, prefs, limit):
+    def search_site(self, site_id, site_name, prefs, limit, exclude=()):
         domain = SITE_RULES[site_id]["domains"][0].split("/")[0]
         found: list[FoundJob] = []
         errors = 0
-        queries = build_queries(site_id, prefs)
+        # 补搜时多查一些组合，前几个查询的结果都已经看过了
+        queries = build_queries(site_id, prefs, limit=20 if exclude else 6)
         for q in queries:
             try:
                 found += self._query(q, domain)
             except LLMError:
                 errors += 1
-            if len({clean_url(f.url) for f in found if match_job_url(site_id, f.url)}) >= limit:
+            if len({clean_url(f.url) for f in found if match_job_url(site_id, f.url)} - set(exclude)) >= limit:
                 break
         if errors == len(queries):
             raise LLMError(tr("{label} 搜索失败，请检查设置页的连线设定。", label=self.label))
-        leads, dropped = collect(site_id, found, limit)
+        leads, dropped = collect(site_id, found, limit, exclude)
         note = tr("{errors} 个查询失败。", errors=errors) if errors else ""
         return _report(site_id, leads, dropped, note)
 

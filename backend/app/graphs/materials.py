@@ -195,7 +195,8 @@ def build_graph(provider: LLMProvider, db: Session, resume: Resume):
         return {"evidence": retrieve(db, resume, query or "experience", keywords, limit=14).items}
 
     def read_facts(state: MaterialState) -> MaterialState:
-        return {"facts": load_confirmed_facts(db)}
+        # v0.6：个人事实库停用，生成只用履历；缺的事实一律列为「需要确认」
+        return {"facts": []}
 
     def generate(state: MaterialState) -> MaterialState:
         return {"draft": generate_draft(provider, state)}

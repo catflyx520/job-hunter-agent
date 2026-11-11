@@ -181,3 +181,64 @@ def test_rename_resume_and_list_shows_latest_review(client):
     client.post(f"/api/resumes/{rid}/reviews", json={"target_role": "Backend Engineer"})
     latest = client.get("/api/resumes").json()[0]["latest_review"]
     assert latest["content_score"] == 82 and latest["keyword_score"] == 57
+
+
+# ---------- embedding 路由 ----------
+
+
+def _openai(client):
+    r = client.post(
+        "/api/providers",
+        json={"kind": "openai", "name": "OpenAI", "api_key": "sk-test-1234", "default_model": "gpt-4o-mini"},
+    )
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
+
+
+def test_saving_embedding_route_builds_chunks_for_confirmed_resumes(client, monkeypatch):
+    from app.llm import registry
+
+    monkeypatch.setattr(registry, "provider_for_task", lambda db, task: client.fake)
+    rid = _upload(client).json()["resume"]["id"]
+    body = {"provider_id": _openai(client), "model": "text-embedding-3-small"}
+
+    r = client.put("/api/task-routes/embedding", json=body)  # 还没确认的履历不算
+    assert r.status_code == 200 and r.json()["chunk_count"] == 0 and r.json()["chunk_error"] is None
+
+    parsed = client.get(f"/api/resumes/{rid}").json()["parsed"]
+    client.put(f"/api/resumes/{rid}/parsed", json={"parsed": parsed, "confirm": True})
+    r = client.put("/api/task-routes/embedding", json=body)
+    assert r.json()["chunk_count"] > 0
+    assert client.get(f"/api/resumes/{rid}").json()["chunk_count"] == r.json()["chunk_count"]
+
+
+def test_embedding_failure_keeps_route_and_reports_why(client, monkeypatch):
+    from app.llm import registry
+    from app.llm.base import LLMError
+
+    def boom(texts):
+        raise LLMError("bad key")
+
+    monkeypatch.setattr(registry, "provider_for_task", lambda db, task: client.fake)
+    monkeypatch.setattr(client.fake, "embed", boom)
+    rid = _upload(client).json()["resume"]["id"]
+    parsed = client.get(f"/api/resumes/{rid}").json()["parsed"]
+    client.put(f"/api/resumes/{rid}/parsed", json={"parsed": parsed, "confirm": True})
+
+    pid = _openai(client)
+    r = client.put("/api/task-routes/embedding", json={"provider_id": pid, "model": "text-embedding-3-small"})
+    assert r.status_code == 200 and r.json()["chunk_error"] == "bad key"
+    routes = {x["task"]: x for x in client.get("/api/task-routes").json()}
+    assert routes["embedding"]["provider_id"] == pid
+
+
+def test_wrong_embedding_dimension_is_explained(client, monkeypatch):
+    from app.llm import registry
+
+    monkeypatch.setattr(registry, "provider_for_task", lambda db, task: client.fake)
+    monkeypatch.setattr(client.fake, "embed", lambda texts: [[0.1, 0.2] for _ in texts])
+    rid = _upload(client).json()["resume"]["id"]
+    parsed = client.get(f"/api/resumes/{rid}").json()["parsed"]
+    client.put(f"/api/resumes/{rid}/parsed", json={"parsed": parsed, "confirm": True})
+    r = client.put("/api/task-routes/embedding", json={"provider_id": _openai(client), "model": "tiny"})
+    assert "text-embedding-3-small" in r.json()["chunk_error"]

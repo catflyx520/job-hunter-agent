@@ -9,8 +9,12 @@ from __future__ import annotations
 import contextvars
 import operator
 import uuid
+from collections import deque
+from collections.abc import Collection
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC, datetime
+from itertools import zip_longest
 from typing import Annotated, Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -29,6 +33,8 @@ from app.search.ats import board_leads, filter_leads
 from app.search.process import LeadResult, process_lead
 from app.search.sites import SITE_RULES, Lead, SiteReport, clean_url
 from app.search.web import get_searcher
+
+MAX_EXTRA_ROUNDS = 2  # 线索用完还没到目标时，最多再搜几轮
 
 
 class SearchState(TypedDict, total=False):
@@ -54,7 +60,7 @@ def fan_out(state: SearchState):
     return [Send("discover", {"run_id": state["run_id"], "params": state["params"], "site": s}) for s in sites]
 
 
-def discover_site(site: dict[str, Any], prefs: JobPreferences) -> SiteReport:
+def discover_site(site: dict[str, Any], prefs: JobPreferences, exclude: Collection[str] = ()) -> SiteReport:
     sid, limit = site["id"], site["max_results"]
     if site["access_method"] == "paste_only":
         return SiteReport(sid, "skipped", message=tr("这个网站需要登录，只支援贴网址 / JD。"))
@@ -82,7 +88,7 @@ def discover_site(site: dict[str, Any], prefs: JobPreferences) -> SiteReport:
                 leads += board_leads(sid, token, company)
             except FetchError as exc:
                 failed.append(f"{token}（{str(exc).split('。')[0]}）")
-        picked = filter_leads(leads, prefs, limit)
+        picked = filter_leads(leads, prefs, limit, exclude)
         msg = tr(
             "查了 {v} 个公司 board，共 {v2} 个职位，职称与地点相符 {v3} 个。",
             v=len(targets),
@@ -96,7 +102,7 @@ def discover_site(site: dict[str, Any], prefs: JobPreferences) -> SiteReport:
     if searcher is None:
         return SiteReport(sid, "skipped", message=label)
     try:
-        report = searcher.search_site(sid, site["name"], prefs, limit)
+        report = searcher.search_site(sid, site["name"], prefs, limit, exclude)
     except LLMError as exc:
         return SiteReport(sid, "failed", message=tr("搜索失败：{exc}", exc=exc))
     return report
@@ -118,27 +124,43 @@ def discover(task: SiteTask) -> dict:
     return {"reports": [report]}
 
 
+def interleave(reports: list[SiteReport], seen: set[str]) -> list[Lead]:
+    """轮流从各网站取线索（凑够目标就停，不能都来自排在前面的网站）；同一网址只留一次，并记进 seen。"""
+    out = []
+    for row in zip_longest(*[r.leads for r in reports]):
+        for lead in row:
+            if lead is not None and clean_url(lead.url) not in seen:
+                seen.add(clean_url(lead.url))
+                out.append(lead)
+    return out
+
+
+def merge_reports(reports: list[SiteReport]) -> list[SiteReport]:
+    """补搜的结果并回第一次的报告：每个网站只写一笔。"""
+    merged: dict[str, SiteReport] = {}
+    for r in reports:
+        if r.site_id in merged:
+            merged[r.site_id] = replace(merged[r.site_id], leads=merged[r.site_id].leads + r.leads)
+        else:
+            merged[r.site_id] = r
+    return list(merged.values())
+
+
 def process(state: SearchState) -> dict:
     run_id, params = state["run_id"], state["params"]
     prefs = JobPreferences.model_validate(params["preferences"])
     order = {s["id"]: i for i, s in enumerate(params["sites"])}
     reports = sorted(state.get("reports", []), key=lambda r: order.get(r.site_id, 999))
 
-    # 同一网址只处理一次；超过总上限的不处理
-    queue: list[Lead] = []
-    results: list[LeadResult] = []
+    target, cap = params.get("target_jobs", params["total_limit"]), params["total_limit"]
+    workers = max(1, get_settings().cli_max_concurrency)
     seen: set[str] = set()
-    for r in reports:
-        for lead in r.leads:
-            key = clean_url(lead.url)
-            if key in seen:
-                continue
-            seen.add(key)
-            if len(queue) >= params["total_limit"]:
-                results.append(LeadResult(lead.site_id, lead.url, "over_limit", message=tr("超过每次搜索的总上限")))
-            else:
-                queue.append(lead)
-    progress.start_processing(run_id, len(queue))
+    queue = deque(interleave(reports, seen))
+    results: list[LeadResult] = []
+    extra: list[SiteReport] = []
+    kept: set[str] = set()  # 一个职位可能从两个网站找到，按职位算
+    checked = rounds = 0
+    progress.start_processing(run_id, target)
 
     def work(lead: Lead) -> LeadResult:
         if progress.is_cancelled(run_id):
@@ -155,10 +177,50 @@ def process(state: SearchState) -> dict:
         progress.lead_done(run_id, res.outcome)
         return res
 
-    with ThreadPoolExecutor(max_workers=max(1, get_settings().cli_max_concurrency)) as pool:
-        # 每个工作执行绪都带上目前的 context（介面语言）
-        results += list(pool.map(lambda lead: contextvars.copy_context().run(work, lead), queue))
-    return {"results": results}
+    def run_all(pool: ThreadPoolExecutor, fn, items) -> list:
+        # context 要在这里（发起的执行绪）复制，工作执行绪才拿得到介面语言
+        return [f.result() for f in [pool.submit(contextvars.copy_context().run, fn, x) for x in items]]
+
+    def rediscover(site: dict[str, Any]) -> SiteReport:
+        try:
+            return discover_site(site, prefs, seen)
+        except Exception:  # noqa: BLE001  补搜失败不影响已经找到的职位
+            return SiteReport(site["id"], "failed")
+
+    searchable = [
+        s for s in params["sites"] if s["id"] in {r.site_id for r in reports if r.status in ("ok", "partial")}
+    ]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        while not progress.is_cancelled(run_id):
+            # 一批不超过还缺的数量，才不会多找；被排除的不算，下一批补上
+            while queue and len(kept) < target and checked < cap and not progress.is_cancelled(run_id):
+                batch = [queue.popleft() for _ in range(min(workers, target - len(kept), cap - checked, len(queue)))]
+                done = run_all(pool, work, batch)
+                results += done
+                checked += len(batch)
+                kept |= {r.job_id for r in done if r.outcome == "kept" and r.job_id}
+                progress.set_kept(run_id, len(kept))
+            if len(kept) >= target or checked >= cap or rounds >= MAX_EXTRA_ROUNDS or not searchable:
+                break
+            rounds += 1
+            more = [r for r in run_all(pool, rediscover, searchable) if r.leads]
+            for r in more:
+                progress.site_more(run_id, r.site_id, len(r.leads))
+            fresh = interleave(more, seen)
+            if not fresh:
+                break
+            extra += more
+            queue.extend(fresh)
+
+    # 没处理到的线索：写进各网站的说明
+    if progress.is_cancelled(run_id):
+        left = ("cancelled", tr("搜索已取消"))
+    elif len(kept) >= target:
+        left = ("not_needed", tr("已达到目标数量"))
+    else:
+        left = ("over_limit", tr("超过每次搜索的总上限"))
+    results += [LeadResult(lead.site_id, lead.url, left[0], message=left[1]) for lead in queue]
+    return {"results": results, "reports": extra}
 
 
 OUTCOME_RANK = {"kept": 0, "excluded": 1, "duplicate": 2}
@@ -168,7 +230,7 @@ def site_summary(report: SiteReport, results: list[LeadResult], kept_jobs: set[s
     """依读取结果调整网站状态，并写出给用户看的说明。回传 (状态, 保留数, 说明)。"""
     mine = [r for r in results if r.site_id == report.site_id]
     count = {k: sum(1 for r in mine if r.outcome == k) for k in
-             ("kept", "excluded", "duplicate", "blocked", "failed", "expired", "cancelled", "over_limit")}  # fmt: skip
+             ("kept", "excluded", "duplicate", "blocked", "failed", "expired", "cancelled", "over_limit", "not_needed")}  # fmt: skip
     kept = len({r.job_id for r in mine if r.outcome == "kept" and r.job_id in kept_jobs})
     parts = [report.message] if report.message else []
     if mine:
@@ -176,7 +238,7 @@ def site_summary(report: SiteReport, results: list[LeadResult], kept_jobs: set[s
         detail = [tr("保留 {kept}", kept=kept)]
         for key, label in (("excluded", tr("排除")), ("duplicate", tr("之前批次已有")), ("blocked", tr("读不到（登录/验证页）")),
                            ("expired", tr("已下架")), ("failed", tr("失败")), ("over_limit", tr("超过总上限未处理")),
-                           ("cancelled", tr("取消"))):  # fmt: skip
+                           ("cancelled", tr("取消")), ("not_needed", tr("已达到目标，未处理"))):  # fmt: skip
             if count[key]:
                 detail.append(f"{label} {count[key]}")
         parts.append(f"{found}：{'、'.join(detail)}。")
@@ -211,7 +273,7 @@ def finalize(state: SearchState) -> dict:
     kept_jobs = {j for j, r in by_job.items() if r.outcome == "kept"}
     with get_sessionmaker()() as db:
         run = db.get(SearchRun, run_id)
-        for report in state.get("reports", []):
+        for report in merge_reports(state.get("reports", [])):
             status, kept, msg = site_summary(report, results, kept_jobs)
             db.add(
                 SearchRunSite(

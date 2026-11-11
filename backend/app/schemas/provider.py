@@ -111,3 +111,5 @@ class TaskRouteOut(BaseModel):
     provider_id: uuid.UUID | None
     model: str | None
     params: dict | None = None
+    chunk_count: int | None = None  # 只有保存 embedding 路由时才有：重建了几个检索切块
+    chunk_error: str | None = None  # 路由已保存，但向量没建成（例如 API key 错）

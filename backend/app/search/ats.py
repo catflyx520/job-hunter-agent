@@ -6,13 +6,14 @@
 from __future__ import annotations
 
 import html
+from collections.abc import Collection
 from datetime import UTC, datetime
 from urllib.parse import quote
 
 from app.core.fetch import fetch_json, html_to_text
 from app.jobs.normalize import location_tier
 from app.schemas.profile import JobPreferences
-from app.search.sites import Lead, title_matches
+from app.search.sites import Lead, clean_url, title_matches
 
 API = {
     "greenhouse": "https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true",
@@ -128,11 +129,13 @@ def board_leads(kind: str, token: str, company: str) -> list[Lead]:
     return PARSERS[kind](data, token, company)
 
 
-def filter_leads(leads: list[Lead], prefs: JobPreferences, limit: int) -> list[Lead]:
+def filter_leads(
+    leads: list[Lead], prefs: JobPreferences, limit: int, exclude: Collection[str] = frozenset()
+) -> list[Lead]:
     """只留职称相符、地点在你的优先清单里的职位；先按地点优先顺序，再按发布时间新到旧。"""
     picked = []
     for lead in leads:
-        if not title_matches(lead.title, prefs):
+        if clean_url(lead.url) in exclude or not title_matches(lead.title, prefs):
             continue
         mode = "remote" if "remote" in lead.location.lower() else "unknown"
         tier = location_tier(lead.location, mode, prefs.locations) if prefs.locations else 0

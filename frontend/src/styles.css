@@ -33,7 +33,8 @@ h2 { margin-top: 0; }
 /* 顶部导航与页面容器 */
 .topbar { background: var(--text); }
 .topbar-inner { max-width: 1360px; margin: 0 auto; padding: 0 24px; display: flex; flex-wrap: wrap; align-items: center; column-gap: 32px; }
-.brand { margin: 0; font-size: 16px; line-height: 56px; font-weight: 700; color: #fff; }
+.brand { display: flex; align-items: center; gap: 10px; min-height: 56px; margin: 0; font-size: 16px; line-height: 56px; font-weight: 700; color: #fff; }
+.brand img { display: block; flex: none; }
 .nav { flex: 1 1 480px; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .nav a, .model-link { display: inline-flex; align-items: center; height: 56px; padding: 3px 12px 0; border-bottom: 3px solid transparent; color: #d6d6d6; text-decoration: none; }
 .nav a:hover, .model-link:hover { color: #fff; }
@@ -292,3 +293,6 @@ button .spinner { margin-right: 6px; }
 .lang-switch { margin-left: 12px; border: 1px solid #fff; background: transparent; padding: 2px; }
 .lang-switch button { min-height: 30px; padding: 0 10px; color: #fff; background: transparent; border: 0; font-size: 13px; }
 .lang-switch button.on { background: #fff; color: #0a0a0a; }
+.draft { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+section.card > .draft:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+tr.on td { background: var(--highlight); }

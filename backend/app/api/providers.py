@@ -17,6 +17,7 @@ from app.llm import cli_auth, registry
 from app.llm.base import DEFAULT_CAPABILITIES, LLMError, Message
 from app.models import TASKS, TaskRoute
 from app.models import LLMProvider as ProviderRow
+from app.rag.chunks import rebuild_confirmed
 from app.schemas.provider import (
     CliInfo,
     CliLoginOut,
@@ -229,12 +230,21 @@ def set_route(task: str, body: TaskRouteIn, db: Session = Depends(get_db)):
     route.provider_id, route.model, route.params = body.provider_id, body.model, body.params
     db.add(route)
     db.flush()
+    db.refresh(route)  # 换连接时 route.provider 要跟着更新
+    chunk_count = chunk_error = None
+    if task == "embedding":
+        try:
+            chunk_count = rebuild_confirmed(db, registry.provider_for_task(db, task))
+        except (LLMError, SecretKeyMissing) as exc:
+            chunk_error = str(exc)
     return TaskRouteOut(
         task=task,
         label=registry.TASK_LABELS[task],
         provider_id=route.provider_id,
         model=route.model,
         params=route.params,
+        chunk_count=chunk_count,
+        chunk_error=chunk_error,
     )
 
 

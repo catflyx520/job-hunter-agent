@@ -138,7 +138,7 @@ def search_locations(prefs: JobPreferences) -> list[str]:
 
 def build_queries(site_id: str, prefs: JobPreferences, limit: int = 6) -> list[str]:
     """给 Tavily / SearXNG 用的查询字串（模型自带搜索则直接给它规则，由它自己组查询）。"""
-    roles = prefs.active_roles[:3] or ["Software Engineer"]
+    roles = prefs.active_roles or ["Software Engineer"]
     domains = SITE_RULES[site_id]["domains"]
     out = []
     for role in roles:

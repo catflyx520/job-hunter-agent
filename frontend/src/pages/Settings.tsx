@@ -27,6 +27,7 @@ export default function Settings() {
   const [routes, setRoutes] = useState<TaskRoute[]>([]);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState("");
+  const [routeMsg, setRouteMsg] = useState("");
   const [cliRefresh, setCliRefresh] = useState(0);
   const cli = useCliLogin(cliRefresh);
 
@@ -45,8 +46,13 @@ export default function Settings() {
   const setRoute = async (task: string, providerId: string, model: string) => {
     setError("");
     try {
+      setRouteMsg("");
       if (!providerId) await api.del(`/api/task-routes/${task}`);
-      else await api.put(`/api/task-routes/${task}`, { provider_id: providerId, model });
+      else {
+        const r = await api.put<TaskRoute>(`/api/task-routes/${task}`, { provider_id: providerId, model });
+        if (r.chunk_error) setError(t("模型已保存，但检索资料没有建立：{error}", { error: r.chunk_error }));
+        else if (r.chunk_count != null) setRouteMsg(r.chunk_count ? t("Embedding 已启用，已建立 {n} 个检索切块。", { n: r.chunk_count }) : t("Embedding 已启用，确认履历时会建立检索切块。"));
+      }
       load();
     } catch (e) {
       setError((e as Error).message);
@@ -123,6 +129,7 @@ export default function Settings() {
           {routes.map((r) => (
             <RouteRow key={r.task} route={r} providers={providers} onSave={setRoute} />
           ))}
+          {routeMsg && <p className="notice">{routeMsg}</p>}
           <p className="muted small" style={{ marginBottom: 0 }}>
             {t("未指定时用第一个启用的连接及其预设模型。Embedding 必须指定 OpenAI、OpenAI 兼容端点或 Ollama。")}
           </p>
@@ -347,9 +354,16 @@ function SearchSourceCard() {
   );
 }
 
-function RouteRow({ route, providers, onSave }: { route: TaskRoute; providers: Provider[]; onSave: (task: string, providerId: string, model: string) => void }) {
+const EMBEDDING_KINDS: ProviderKind[] = ["openai", "openai_compatible", "ollama"];
+// 数据库的向量栏位是 1536 维，这个模型刚好相符；聊天模型不能算 embedding
+const defaultModel = (task: string, p: Provider) => (task === "embedding" && p.kind === "openai" ? "text-embedding-3-small" : p.default_model);
+
+function RouteRow({ route, providers, onSave }: { route: TaskRoute; providers: Provider[]; onSave: (task: string, providerId: string, model: string) => Promise<void> }) {
   const [pid, setPid] = useState(route.provider_id ?? "");
   const [model, setModel] = useState(route.model ?? "");
+  const [saving, setSaving] = useState(false);
+  const isEmbedding = route.task === "embedding";
+  const choices = isEmbedding ? providers.filter((p) => EMBEDDING_KINDS.includes(p.kind)) : providers;
   useEffect(() => {
     setPid(route.provider_id ?? "");
     setModel(route.model ?? "");
@@ -363,20 +377,29 @@ function RouteRow({ route, providers, onSave }: { route: TaskRoute; providers: P
         onChange={(e) => {
           setPid(e.target.value);
           const p = providers.find((x) => x.id === e.target.value);
-          if (p && !model) setModel(p.default_model);
+          if (p && (isEmbedding || !model)) setModel(defaultModel(route.task, p));
         }}
       >
         <option value="">{t("（未指定）")}</option>
-        {providers.map((p) => (
+        {choices.map((p) => (
           <option key={p.id} value={p.id}>
             {t(p.name)}
           </option>
         ))}
       </select>
       <input aria-label={t("{name}的模型", { name: t(route.label) })} value={model} placeholder={t("模型名称")} onChange={(e) => setModel(e.target.value)} />
-      <button type="button" onClick={() => onSave(route.task, pid, model)} disabled={!!pid && !model}>
-        {t("保存")}
+      <button
+        type="button"
+        disabled={saving || (!!pid && !model)}
+        onClick={async () => {
+          setSaving(true);
+          await onSave(route.task, pid, model);
+          setSaving(false);
+        }}
+      >
+        {saving ? <Spinner /> : t("保存")}
       </button>
+      {isEmbedding && choices.length === 0 && <div className="muted small" style={{ gridColumn: "1 / -1" }}>{t("还没有支援 embedding 的连接：先在「连接」新增 OpenAI API key。")}</div>}
     </div>
   );
 }
