@@ -8,7 +8,13 @@ spec = importlib.util.spec_from_file_location("export_demo_resume", SCRIPT)
 export = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(export)
 
-BASICS = {"name": "Alex Sample", "email": "alex@example.com", "phone": "555-010-0199", "location": "Remote", "links": []}
+BASICS = {
+    "name": "Alex Sample",
+    "email": "alex@example.com",
+    "phone": "555-010-0199",
+    "location": "Remote",
+    "links": [],
+}
 
 
 def test_public_resume_removes_contact_details():

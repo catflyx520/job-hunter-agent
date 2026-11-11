@@ -52,7 +52,9 @@ class LocalOnlyMiddleware:
             host = headers.get(b"host", b"").decode("latin-1")
             origin = headers.get(b"origin")
             if not _is_local(f"//{host}") or (origin is not None and not _is_local(origin.decode("latin-1"))):
-                await JSONResponse({"detail": "Only requests from this computer are allowed."}, status_code=403)(scope, receive, send)
+                await JSONResponse({"detail": "Only requests from this computer are allowed."}, status_code=403)(
+                    scope, receive, send
+                )
                 return
         await self.app(scope, receive, send)
 
