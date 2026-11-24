@@ -28,6 +28,7 @@ class Lead:
     snippet: str = ""
     jd_text: str | None = None  # ATS API 已经给了完整 JD 时才有
     ats: tuple[str, str] | None = None  # (greenhouse|lever|ashby, board token)
+    via_browser: bool = False  # 职位页要用登录浏览器读（SPEC v0.10）
 
 
 @dataclass
@@ -61,6 +62,10 @@ SITE_RULES: dict[str, dict] = {
         "job": [r"welcometothejungle\.com/[a-z-]+/companies/[^/]+/jobs/([^/?#]+)"],
     },
     "wwr": {"domains": ["weworkremotely.com/remote-jobs"], "job": [r"weworkremotely\.com/remote-jobs/([^/?#]+)"]},
+    # 公司招聘板：搜索只用来找出公司的 board 名（网址规则见 ATS_URL），职位本身从公开 API 读
+    "greenhouse": {"domains": ["job-boards.greenhouse.io", "boards.greenhouse.io"]},
+    "lever": {"domains": ["jobs.lever.co"]},
+    "ashby": {"domains": ["jobs.ashbyhq.com"]},
 }
 
 ATS_URL = [
@@ -101,35 +106,42 @@ def clean_url(url: str) -> str:
 
 
 def match_job_url(site_id: str, url: str) -> str | None:
-    """网址是这个网站的单一职位页时，回传平台职位 ID；否则回传 None。"""
-    for rx in SITE_RULES.get(site_id, {}).get("job", []):
+    """网址是这个网站的单一职位页时，回传平台职位 ID；否则回传 None。公司招聘板的网址回传 board 名。"""
+    rules = SITE_RULES.get(site_id, {})
+    if "job" not in rules:
+        found = ats_from_url(url)
+        return found[1] if found and found[0] == site_id else None
+    for rx in rules["job"]:
         m = re.search(rx, url, re.I)
         if m:
             return next(g for g in m.groups() if g)
     return None
 
 
-_GENERIC = {
-    "engineer", "engineers", "developer", "software", "senior", "junior", "sr", "jr", "ii", "iii", "i", "the",
-    "and", "of", "lead", "staff", "mid", "level", "role", "roles",
-}  # fmt: skip
+_ENGINEER = {"engineer", "engineers", "developer", "programmer", "swe"}
+_LEVEL = {"senior", "junior", "sr", "jr", "ii", "iii", "i", "the", "and", "of", "lead", "staff", "mid", "level", "role", "roles"}  # fmt: skip
 
 
-def role_tokens(prefs: JobPreferences) -> set[str]:
-    """目标职位里有辨识度的字（full、stack、backend、react…），给 ATS 职称过滤用。"""
-    words = {w for r in prefs.active_roles for w in re.findall(r"[a-z0-9#+.]+", r.lower().replace("-", " "))}
-    return {w for w in words if w not in _GENERIC and len(w) > 1}
+def _words(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9#+.]+", text.lower().replace("-", " ")))
 
 
 def title_matches(title: str, prefs: JobPreferences) -> bool:
-    t = " " + re.sub(r"[^a-z0-9#+.]+", " ", title.lower().replace("-", " ")) + " "
-    if not re.search(r"\b(engineer|developer|programmer|swe)\b", t) and prefs.active_roles:
-        # 目标职位本身不是工程师类时，只看目标字词
-        return any(f" {w} " in t for w in role_tokens(prefs))
-    tokens = role_tokens(prefs)
-    if not tokens:
-        return bool(re.search(r"\b(engineer|developer)\b", t))
-    return any(f" {w} " in t for w in tokens)
+    """职称符合任一个目标职位（给 ATS 职称过滤用）。目标是工程师类时，职称也要是工程师类。"""
+    have = _words(title)
+    engineer = bool(have & _ENGINEER)
+    if not prefs.active_roles:
+        return engineer
+    for role in prefs.active_roles:
+        words = _words(role)
+        if words & _ENGINEER and not engineer:
+            continue
+        rest = {w for w in words - _ENGINEER - _LEVEL if len(w) > 1}
+        distinctive = rest - {"software"}  # 有辨识度的字（full、stack、backend、react…）
+        # 目标没有辨识字（Software Engineer）时要有 software，才不会把 Frontend Engineer 也算进来
+        if distinctive & have if distinctive else rest <= have:
+            return True
+    return False
 
 
 def search_locations(prefs: JobPreferences) -> list[str]:

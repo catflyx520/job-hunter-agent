@@ -23,6 +23,8 @@ TASK_LABELS = {
     "qa": "申请问答",
     "search": "职位搜索",
     "embedding": "Embedding",
+    "outreach": "内推请求",
+    "email_classify": "邮件分类",
 }
 
 

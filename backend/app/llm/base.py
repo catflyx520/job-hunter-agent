@@ -54,7 +54,7 @@ DEFAULT_CAPABILITIES: dict[str, Capabilities] = {
     "openai_compatible": Capabilities(structured_output=True),
     "ollama": Capabilities(structured_output=True, tool_calling=True),
     # CLI 模式：文字生成时停用所有工具；web_search 指 CLI 自带搜索，留给 F3 使用
-    "claude_cli": Capabilities(structured_output=True, web_search=True),
+    "claude_cli": Capabilities(structured_output=True, vision=True, web_search=True),
     "codex_cli": Capabilities(structured_output=True, vision=True, web_search=True),
 }
 

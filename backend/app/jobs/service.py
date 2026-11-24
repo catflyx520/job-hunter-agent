@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
@@ -14,11 +15,20 @@ from app.core.i18n import tr
 from app.jobs.exclusion import check_exclusions, closed_posting
 from app.jobs.extract import JobExtraction, extract_job
 from app.jobs.match import score_match
-from app.jobs.normalize import canonical_key, location_tier, normalize_company, site_for_url
+from app.jobs.normalize import (
+    canonical_key,
+    job_page_url,
+    location_tier,
+    normalize_company,
+    normalize_title,
+    parse_posted,
+    site_for_url,
+)
 from app.llm.registry import provider_for_task
 from app.models import Company, Job, JobMatch, JobSource, Preferences, Resume
 from app.rag.retrieve import retrieve
 from app.schemas.profile import JobPreferences
+from app.search.ats import ashby_lead
 from app.search.sites import ats_from_url
 from app.sponsor.lookup import refresh_company
 
@@ -64,22 +74,30 @@ def ingest(
     jd_text = (jd_text or "").strip() or None
     if not url and not jd_text:
         raise IngestError(tr("请贴上职位网址或 JD。"))
+    if url and (page_url := job_page_url(url)) != url:
+        url = page_url
+        notes.append(tr("贴上的是 LinkedIn 列表页，已改读这个职位的公开页面：{url}", url=url))
 
     if jd_text:
         verification, status, verified_at = "pasted", "unverified", None
         if url:
             notes.append(tr("使用你贴上的 JD；网址只记录为来源，未重新读取。"))
     else:
-        page = fetch_page(url)  # FetchError 由 API 层转成讯息
-        jd_text, url, links = page.text, page.url, page.links
+        lead = ashby_lead(url, company_hint)  # FetchError 由 API 层转成讯息
+        if lead:
+            jd_text, url, links, verified_at = lead.jd_text, lead.url, [], datetime.now(UTC)
+            notes.append(tr("已从 Ashby 的公开职位 API 读取 JD。"))
+        else:
+            page = fetch_page(url)
+            jd_text, url, links, verified_at = page.text, page.url, page.links, page.retrieved_at
+            notes.append(tr("已读取公开网页；网页文字可能包含 JD 以外的内容，请检查抽取结果。"))
         site = site_for_url(url)
         verification = (
             "job_board"
             if site not in ("manual", "greenhouse", "lever", "ashby")
             else ("ats_api" if site in ("greenhouse", "lever", "ashby") else "employer_site")
         )
-        status, verified_at = "active", page.retrieved_at
-        notes.append(tr("已读取公开网页；网页文字可能包含 JD 以外的内容，请检查抽取结果。"))
+        status = "active"
 
     ex, evidence_notes = extract_job(
         provider_for_task(db, "job_extract"), jd_text, {"company": company_hint, "title": title_hint}
@@ -127,6 +145,16 @@ def find_existing(db: Session, ex: JobExtraction, company_hint: str = "") -> Job
     )
 
 
+def _email_job(db: Session, company_id: uuid.UUID, title: str) -> Job | None:
+    """邮件同步从确认信建出的职位只有公司与职称（没有地点、JD），去重键和职位页算出来的不一样。
+    之后找到同公司、同职称的职位页时用这一个，不另建，免得同一个职位一个「已投递」、一个「待看」。
+    同职称的邮件职位不只一个（分不出是哪个）就不合并。"""
+    norm = normalize_title(title)
+    q = select(Job).where(Job.company_id == company_id, Job.verification_source == "email", Job.jd_text.is_(None))
+    hits = [j for j in db.scalars(q) if normalize_title(j.title) == norm]
+    return hits[0] if len(hits) == 1 else None
+
+
 def save_job(
     db: Session, ex: JobExtraction, jd_text: str, origin: JobOrigin, company_hint: str = ""
 ) -> tuple[Job, bool]:
@@ -143,6 +171,8 @@ def save_job(
 
     key = canonical_key(company.normalized_name, ex.title, ex.location_text, ex.requisition_id)
     job = db.scalar(select(Job).where(Job.canonical_key == key))
+    if job is None and (job := _email_job(db, company.id, ex.title)) is not None:
+        job.canonical_key = key  # 邮件同步先建出的职位：补进这一个，投递记录跟着保留
     created = job is None
     if job is None:
         job = Job(canonical_key=key, company_id=company.id)
@@ -160,8 +190,7 @@ def save_job(
     job.salary_currency = ex.salary_currency or ("USD" if ex.salary_min or ex.salary_max else None)
     job.salary_period = ex.salary_period if (ex.salary_min or ex.salary_max) else None
     job.posted_text = ex.posted_text or None
-    if origin.posted_at:
-        job.posted_at = origin.posted_at
+    job.posted_at = origin.posted_at or parse_posted(ex.posted_text, now) or job.posted_at
     job.jd_text = jd_text
     job.jd_sha256 = hashlib.sha256(jd_text.encode()).hexdigest()
     job.jd_fetched_at = now

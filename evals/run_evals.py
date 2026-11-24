@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -33,6 +34,7 @@ if hasattr(sys.stdout, "reconfigure"):
 sys.path.insert(0, str(ROOT / "datasets"))
 
 from cases import CASES, ENTITY_PAIRS, PERSONAS, Case  # noqa: E402
+from style import STYLE_FORBIDDEN, STYLE_SAMPLES  # noqa: E402
 
 from app.core.i18n import set_lang  # noqa: E402
 from app.graphs.materials import Citation, Draft, FactItem, NeedItem, generate_draft, verify_draft  # noqa: E402
@@ -40,6 +42,7 @@ from app.jobs.exclusion import check_exclusions  # noqa: E402
 from app.jobs.extract import JobExtraction, extract_job, verify_evidence  # noqa: E402
 from app.jobs.match import score_match  # noqa: E402
 from app.jobs.normalize import location_tier, normalize_company  # noqa: E402
+from app.materials.style import propose_rules  # noqa: E402
 from app.models import Company, Job  # noqa: E402
 from app.rag.chunks import make_chunks  # noqa: E402
 from app.rag.retrieve import Evidence  # noqa: E402
@@ -287,6 +290,27 @@ def eval_materials(provider, persona: str) -> dict[str, Any]:
     return out
 
 
+def style_leaks(texts: list[str]) -> list[str]:
+    """规则文字里出现的样本事实（不分大小写，整词或整句比对，所以 "99.9" 不会命中 "99.95"）。"""
+    return [
+        f"{t}：{term}"
+        for t in texts
+        for term in STYLE_FORBIDDEN
+        if re.search(rf"(?<!\w){re.escape(term)}(?!\w)", t, re.IGNORECASE)
+    ]
+
+
+def eval_style(provider) -> dict[str, Any]:
+    """写法学习：真实模型整理三份样本，任何一条规则带进样本事实、或一条规则都没有就是 0.0。"""
+    try:
+        rules = propose_rules(provider, "cover_letter", STYLE_SAMPLES, [], [], [])
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"{type(exc).__name__}: {exc}"}
+    texts = [r.text for r in rules]
+    leaks = style_leaks(texts)
+    return {"rules": len(texts), "no_fact_leak": 1.0 if texts and not leaks else 0.0, "texts": texts, "leaks": leaks}
+
+
 def ratio(part: float, whole: float) -> float | None:
     """分母是 0（全部失败或没跑）时回传 None：是「没有结果」，不是 0 分。"""
     return round(part / whole, 3) if whole else None
@@ -336,6 +360,11 @@ def run_llm(
             "qa_start_ok": ratio(sum(m["qa_start_ok"] for m in mats), len(mats)),
         },
     }
+    style = eval_style(provider)  # 只呼叫一次模型，--resume 时也照样重跑
+    if "error" in style:
+        failures.append(f"style：{style['error']}")
+    else:
+        metrics["style"] = {"rules": style["rules"], "no_fact_leak": style["no_fact_leak"]}
     for r in good:
         if r["exclusions"] != r["expected_exclusions"]:
             failures.append(
@@ -343,7 +372,7 @@ def run_llm(
             )
         if r["recommendation"] != r["expected"]:
             failures.append(f"{r['id']} 建议：预期 {r['expected']}，实际 {r['recommendation']}（{r['score']} 分）")
-    return metrics, failures, {"cases": case_results, "materials": mat_results}
+    return metrics, failures, {"cases": case_results, "materials": mat_results, "style": style}
 
 
 # ---------- 门槛与输出 ----------

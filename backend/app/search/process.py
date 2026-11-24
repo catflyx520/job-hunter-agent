@@ -23,7 +23,8 @@ from app.llm.base import LLMError
 from app.llm.registry import provider_for_task
 from app.models import Job, JobMatch, JobSource, SearchRunJob
 from app.schemas.profile import JobPreferences
-from app.search.sites import Lead, clean_url
+from app.search.browser import BrowserBlocked, BrowserError, open_checked
+from app.search.sites import Lead, clean_url, match_job_url
 from app.sponsor.lookup import refresh_company
 
 SAVE_LOCK = threading.Lock()
@@ -62,6 +63,7 @@ def _evaluate(db: Session, job: Job, lead: Lead, prefs: JobPreferences, sponsor:
     """硬性排除优先；没被排除才做匹配评分（省模型额度）。"""
     if sponsor:
         refresh_company(db, job.company)
+        db.commit()  # 马上放开这家公司的锁：后面的评分要等模型几十秒，同公司的其他职位不该跟着等
     exclusion = check_exclusions(job, prefs)
     if exclusion.excluded:
         return LeadResult(lead.site_id, lead.url, "excluded", str(job.id), exclusion.reasons)
@@ -97,22 +99,36 @@ def process_lead(run_id: str, lead: Lead, prefs: JobPreferences, sponsor: bool) 
                     lead.site_id, lead.url, "failed", str(job.id), message=tr("匹配评分失败：{exc}", exc=exc)
                 )
 
-    # 2. 取得 JD：ATS API 已经给了；否则用安全读取去读职位页
+    # 2. 取得 JD：ATS API 已经给了；登录浏览器找到的用那个窗口读；否则用安全读取去读职位页
     links: list[str] = []
     if lead.jd_text:
         jd_text, url, verification, verified_at = lead.jd_text, lead.url, "ats_api", now
+    elif lead.via_browser:
+        try:
+            seen = open_checked(run_id, lead.url)
+        except BrowserBlocked as exc:
+            return LeadResult(lead.site_id, lead.url, "blocked", message=str(exc))
+        except BrowserError as exc:
+            return LeadResult(lead.site_id, lead.url, "failed", message=str(exc))
+        if not match_job_url(lead.site_id, seen.url):
+            return LeadResult(lead.site_id, lead.url, "expired", message=tr("职位页转到了别的页面（多半已下架）"))
+        jd_text, url, links, verification, verified_at = seen.text, lead.url, seen.links, "job_board", now
     else:
         try:
             page = fetch_page(lead.url)
         except FetchError as exc:
             outcome = "blocked" if exc.blocked else ("expired" if "下架" in str(exc) else "failed")
             return LeadResult(lead.site_id, lead.url, outcome, message=str(exc).split("。")[0])
+        if match_job_url(lead.site_id, lead.url) and not match_job_url(lead.site_id, page.url):
+            # 例如 LinkedIn 把下架的职位转到列表页：不把列表页交给模型抽取
+            return LeadResult(lead.site_id, lead.url, "expired", message=tr("职位页转到了别的页面（多半已下架）"))
         jd_text, url, links, verified_at = page.text, lead.url, page.links, page.retrieved_at
         verification = "employer_site" if site_for_url(page.url) == "manual" else "job_board"
 
     # 3. 抽取（模型呼叫，不加锁）
     with maker() as db:
-        hints = {"title": lead.title} if lead.ats else {}
+        # ATS 给的职称是准的；LinkedIn 整页文字里还有「类似职位」等别的职称，以卡片上的为准
+        hints = {"title": lead.title} if lead.ats or lead.via_browser else {}
         if lead.ats and lead.company:
             hints["company"] = lead.company
         try:

@@ -1,3 +1,4 @@
+import base64
 import json
 import subprocess
 
@@ -73,6 +74,39 @@ def test_claude_args_disable_tools_mcp_and_settings():
     assert args[args.index("--setting-sources") + 1] == ""
     assert "--no-session-persistence" in args
     assert args[args.index("--model") + 1] == "haiku"
+
+
+def test_claude_cli_sends_images_in_the_message_without_tools(monkeypatch):
+    """附图时改用 stream-json 输入，图片放在消息里；工具仍然全部停用，最后一行的 result 照常解析。"""
+    seen = {}
+
+    def fake_run_cli(args, stdin_text, who, **kwargs):
+        seen["args"], seen["stdin"] = args, stdin_text
+        events = [
+            {"type": "system", "subtype": "init"},
+            {"type": "result", "is_error": False, "result": "read it", "usage": {"output_tokens": 2}},
+        ]
+        return "\n".join(json.dumps(e) for e in events)
+
+    monkeypatch.setattr(cli_providers, "find_executable", lambda name: "claude")
+    monkeypatch.setattr(cli_providers, "run_cli", fake_run_cli)
+    provider = ClaudeCliProvider("default")
+    assert provider.capabilities().vision is True  # 预设就能收图片
+    out = provider.generate(
+        [Message("system", "sys"), Message("user", "what is asked?")], images=[ImageInput("image/png", b"PNG")]
+    )
+    assert out.text == "read it"
+    args = seen["args"]
+    assert args[args.index("--input-format") + 1] == "stream-json"
+    assert args[args.index("--output-format") + 1] == "stream-json" and "--verbose" in args
+    assert args[args.index("--tools") + 1] == ""
+    event = json.loads(seen["stdin"])
+    text, image = event["message"]["content"]
+    assert event["type"] == "user" and "sys" in text["text"] and "what is asked?" in text["text"]
+    data = base64.b64encode(b"PNG").decode()
+    assert image == {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": data}}
+    # 没有图片时维持原本的文字输入
+    assert "--input-format" not in ClaudeCliProvider("default").build_args("claude")
 
 
 def test_codex_args_read_only_and_images():

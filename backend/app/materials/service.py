@@ -16,6 +16,7 @@ from app.graphs.materials import build_graph
 from app.llm.base import ImageInput, LLMError, NotSupported
 from app.llm.registry import provider_for_task
 from app.materials.images import ValidImage, save_images
+from app.materials.style import active_rule_texts
 from app.models import Job, Material, MaterialImage, Resume
 
 
@@ -96,6 +97,7 @@ def create_material(db: Session, req: MaterialRequest) -> Material:
             )
         db.flush()
 
+    rules = active_rule_texts(db, req.kind)
     try:
         state = build_graph(provider, db, resume).invoke(
             {
@@ -106,6 +108,7 @@ def create_material(db: Session, req: MaterialRequest) -> Material:
                 "company": job.company.display_name if job else "",
                 "question": m.question or "",
                 "requirements": m.requirements or "",
+                "style_rules": rules,
                 "images": [ImageInput(i.mime, i.data) for i in (req.images or [])],
             }
         )
@@ -117,6 +120,7 @@ def create_material(db: Session, req: MaterialRequest) -> Material:
     m.citations = state["citations"]
     m.needs_confirmation = state["needs_confirmation"]
     m.facts_used = state["facts_used"] or None
+    m.style_rules = rules or None
     m.status = "done"
     _embed_question(db, m)
     db.flush()

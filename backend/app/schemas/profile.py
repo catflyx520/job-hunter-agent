@@ -74,6 +74,7 @@ class JobPreferences(BaseModel):
     work_authorization: WorkAuthorization = Field(default_factory=WorkAuthorization)
     blacklist: Blacklist = Field(default_factory=Blacklist)
     search: SearchSettings = Field(default_factory=SearchSettings)
+    linkedin_premium: bool = False  # Reach out：Premium 的连接附言上限 300 字符，免费 200
 
     @field_validator("target_roles", "locations")
     @classmethod

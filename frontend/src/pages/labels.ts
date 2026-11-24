@@ -3,6 +3,8 @@ import { t } from "../i18n";
 
 export const UNKNOWN = t("未知");
 
+export const KIND_LABEL: Record<"cover_letter" | "qa", string> = { cover_letter: "Cover letter", qa: t("申请问答") };
+
 export const WORK_MODE: Record<string, string> = { onsite: "Onsite", hybrid: "Hybrid", remote: "Remote", unknown: UNKNOWN };
 export const EMPLOYMENT: Record<string, string> = {
   full_time: "Full-time",
@@ -39,6 +41,15 @@ export const VERIFICATION: Record<string, string> = {
   job_board: t("求职网站页面"),
   search_snippet: t("搜索摘要"),
   pasted: t("你贴上的 JD（未在官网核实）"),
+  email: t("从投递确认信建出（没有 JD，未核实）"),
+};
+// 邮件同步：这封信是什么
+export const MAIL_KIND: Record<string, string> = {
+  application_received: t("投递确认信"),
+  rejection: t("拒信"),
+  interview: t("面试邀请"),
+  offer: "Offer",
+  not_evidence: t("不是投递证据"),
 };
 
 export function salary(min: number | null, max: number | null, period: string | null): string {
@@ -69,6 +80,7 @@ export const RUN_SITE_STATUS: Record<string, { text: string; cls: string }> = {
 
 export const APP_STATUS: Record<string, { text: string; cls: string }> = {
   saved: { text: t("收藏"), cls: "" },
+  referred: { text: t("已请求内推"), cls: "pass" },
   applied: { text: t("已投递"), cls: "pass" },
   interviewing: { text: t("面试中"), cls: "pass" },
   offer: { text: "Offer", cls: "pass" },
@@ -76,4 +88,4 @@ export const APP_STATUS: Record<string, { text: string; cls: string }> = {
   ghosted: { text: t("无回音"), cls: "warn" },
   dismissed: { text: t("已删除"), cls: "" },
 };
-export const APP_STATUS_ORDER = ["saved", "applied", "interviewing", "offer", "rejected", "ghosted", "dismissed"] as const;
+export const APP_STATUS_ORDER = ["saved", "referred", "applied", "interviewing", "offer", "rejected", "ghosted", "dismissed"] as const;

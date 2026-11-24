@@ -21,14 +21,14 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.db import Base
 from app.models import _created, _in, _updated, _uuid_pk
 
-SITE_ACCESS = ("web_search", "ats_api", "paste_only")
+SITE_ACCESS = ("web_search", "ats_api", "paste_only", "browser")
 ATS_KINDS = ("greenhouse", "lever", "ashby", "workday", "other", "unknown")
 SENIORITY = ("junior", "mid", "senior", "staff_plus", "unknown")
 WORK_MODES = ("onsite", "hybrid", "remote", "unknown")
 EMPLOYMENT_TYPES = ("full_time", "part_time", "contract", "contract_to_hire", "internship", "unknown")
 SPONSORSHIP = ("explicit_yes", "explicit_no", "unclear")
 JOB_STATUS = ("active", "expired", "unverified")
-VERIFICATION = ("employer_site", "ats_api", "job_board", "search_snippet", "pasted")
+VERIFICATION = ("employer_site", "ats_api", "job_board", "search_snippet", "pasted", "email")
 RUN_STATUS = ("pending", "running", "completed", "failed", "cancelled")
 RUN_SITE_STATUS = ("ok", "partial", "blocked", "failed", "skipped")
 RUN_OUTCOME = ("kept", "excluded", "duplicate")

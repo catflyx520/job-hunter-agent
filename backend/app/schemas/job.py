@@ -84,6 +84,7 @@ class JobSummary(BaseModel):
     application_status: str | None = None  # 投递状态（未标记为空）
     applied_at: datetime | None = None  # 第一次标记为已投递的时间
     status_at: datetime | None = None  # 最近一次改投递状态的时间（已删除分组按这个排序）
+    found_on: list[str] = Field(default_factory=list)  # 在哪些网站找到（job_sites.id）
 
 
 class JobDetail(JobSummary):
@@ -124,7 +125,7 @@ class JobSiteOut(BaseModel):
 
     id: str
     name: str
-    access_method: Literal["web_search", "ats_api", "paste_only"]
+    access_method: Literal["web_search", "ats_api", "paste_only", "browser"]
     enabled: bool
     max_results: int
     sort_order: int
@@ -135,6 +136,7 @@ class JobSiteOut(BaseModel):
 class JobSiteUpdate(BaseModel):
     enabled: bool | None = None
     max_results: int | None = Field(None, ge=1, le=100)
+    access_method: Literal["web_search", "browser"] | None = None  # 只有支援登录浏览器的网站能改
 
 
 class SearchSourceOut(BaseModel):
@@ -178,7 +180,6 @@ class RunSiteOut(BaseModel):
 class RunJobOut(JobSummary):
     outcome: Literal["kept", "excluded", "duplicate"]
     exclusion_reasons: list[dict[str, str]] = Field(default_factory=list)
-    found_on: list[str] = Field(default_factory=list)  # 这个批次在哪些网站找到
 
 
 class SearchRunOut(BaseModel):

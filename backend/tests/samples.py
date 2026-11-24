@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 
 SYNTHETIC_LINES = [
     "Jordan Rivera",
@@ -206,6 +207,9 @@ def _evidence_ids(messages) -> list[str]:
     return re.findall(r"^\[([^\]]+)\] \((?:experience|project|summary|skills|education)\)", text, re.M)
 
 
+STYLE_REPLY: dict = {"rules": []}
+
+
 def fake_responder(messages, json_mode):
     """依 schema 回传对应的假 JSON。"""
     title = (json_mode or {}).get("title")
@@ -249,7 +253,35 @@ def fake_responder(messages, json_mode):
                 "needs_confirmation": [],
             }
         )
+    if title == "PeopleHits":
+        return json.dumps({"hits": [{"url": u, "title": "", "snippet": ""} for u in PEOPLE_URLS]})
+    if title == "CandidateList":
+        return json.dumps({"candidates": _candidates_for(messages[-1].content)})
+    if title == "LearnedRules":
+        return json.dumps(STYLE_REPLY)
     return "ok"
+
+
+# ---------- Reach out 用的合成资料（虚构人名） ----------
+
+PEOPLE_URLS = ["https://www.linkedin.com/in/ada-sample", "https://www.linkedin.com/in/ben-example"]
+
+
+def _candidates_for(prompt: str) -> list[dict]:
+    """把提示里出现的每个 LinkedIn 个人页当成一位候选人。"""
+    out = []
+    for slug in dict.fromkeys(re.findall(r"linkedin\.com/in/([\w-]+)", prompt)):
+        out.append(
+            {
+                "full_name": slug.replace("-", " ").title(),
+                "title": "Software Engineer",
+                "linkedin_url": f"https://www.linkedin.com/in/{slug}",
+                "hunter_ref": None,
+                "role_kind": "engineer",
+                "why": "同一个团队的后端工程师。",
+            }
+        )
+    return out
 
 
 # ---------- M3 搜索用的合成资料 ----------

@@ -8,12 +8,13 @@ from __future__ import annotations
 import html
 from collections.abc import Collection
 from datetime import UTC, datetime
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
-from app.core.fetch import fetch_json, html_to_text
+from app.core.fetch import FetchError, fetch_json, html_to_text
+from app.core.i18n import tr
 from app.jobs.normalize import location_tier
 from app.schemas.profile import JobPreferences
-from app.search.sites import Lead, clean_url, title_matches
+from app.search.sites import Lead, ats_from_url, clean_url, title_matches
 
 API = {
     "greenhouse": "https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true",
@@ -127,6 +128,19 @@ def board_leads(kind: str, token: str, company: str) -> list[Lead]:
     """读取一个公司的职位板。FetchError 由呼叫端处理。"""
     data = fetch_json(API[kind].format(token=quote(token, safe="")))
     return PARSERS[kind](data, token, company)
+
+
+def ashby_lead(url: str, company: str = "") -> Lead | None:
+    """Ashby 的职位页要 JavaScript 才显示内容，读网页拿不到 JD；改从公开 API 找同一个职位。不是 Ashby 网址回传 None。"""
+    found = ats_from_url(url)
+    if not found or found[0] != "ashby":
+        return None
+    parts = urlsplit(url.strip()).path.split("/")
+    job_id = parts[2] if len(parts) > 2 else ""
+    lead = next((x for x in board_leads("ashby", found[1], company) if job_id and x.site_job_id == job_id), None)
+    if lead is None:
+        raise FetchError(tr("Ashby 上找不到这个职位（可能已下架或未公开），请直接贴上 JD。"))
+    return lead
 
 
 def filter_leads(

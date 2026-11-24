@@ -19,6 +19,7 @@
     "materials.cover_supported_ratio": 0.9,
     "materials.cover_no_unsourced_numbers": 0.8,
     "materials.qa_salary_flagged": 1.0,
-    "materials.qa_start_ok": 0.8
+    "materials.qa_start_ok": 0.8,
+    "style.no_fact_leak": 1.0
   }
 }

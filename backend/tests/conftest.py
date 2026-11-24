@@ -83,6 +83,7 @@ def truncate_all(engine) -> None:
     with engine.begin() as conn:
         conn.execute(text(f"TRUNCATE {tables} RESTART IDENTITY CASCADE"))
         conn.execute(text("UPDATE job_sites SET enabled = false, max_results = 20"))
+        conn.execute(text("UPDATE job_sites SET access_method = 'web_search' WHERE access_method = 'browser'"))
 
 
 @pytest.fixture(autouse=True)
@@ -101,9 +102,12 @@ PROVIDER_LOOKUPS = (
     "app.api.jobs",
     "app.jobs.service",
     "app.materials.service",
+    "app.materials.style",
     "app.rag.retrieve",
     "app.search.process",
     "app.search.web",
+    "app.outreach.people",
+    "app.outreach.drafts",
 )
 
 

@@ -1,3 +1,4 @@
+import { NativeSelect } from "@/components/ui/native-select";
 import { useEffect, useState } from "react";
 import { api, Application, ApplicationStatus, Material } from "../api";
 import { APP_STATUS, APP_STATUS_ORDER } from "./labels";
@@ -30,7 +31,8 @@ export function StatusSelect({
 
   return (
     <span title={error || t("投递状态（你自己标记；本工具不会代你投递）")}>
-      <select
+      <NativeSelect
+        size="sm"
         value={value ?? ""}
         onChange={(e) => e.target.value && set(e.target.value as ApplicationStatus)}
         aria-label={t("投递状态")}
@@ -41,7 +43,7 @@ export function StatusSelect({
             {APP_STATUS[s].text}
           </option>
         ))}
-      </select>
+      </NativeSelect>
       {error && <span className="badge fail">{t("失败")}</span>}
     </span>
   );
@@ -155,6 +157,14 @@ export default function ApplicationPanel({ jobId }: { jobId: string }) {
                     {e.from_status ? `${APP_STATUS[e.from_status]?.text ?? e.from_status} → ` : ""}
                     <b>{APP_STATUS[e.to_status].text}</b>
                     {e.note && <span className="muted"> · {e.note}</span>}
+                    {e.email_message && (
+                      <div className="muted small">
+                        {t("来自邮件：{from} · {date} · {subject}", { from: e.email_message.from_addr, date: new Date(e.email_message.received_at).toLocaleDateString(), subject: e.email_message.subject })}{" "}
+                        <a href={e.email_message.gmail_url} target="_blank" rel="noreferrer">
+                          {t("在 Gmail 打开")}
+                        </a>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}

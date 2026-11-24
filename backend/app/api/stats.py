@@ -16,12 +16,12 @@ from app.api.jobs import _summary
 from app.core.db import get_db
 from app.core.i18n import tr
 from app.jobs.exclusion import REASON_LABELS
-from app.models import Job, JobSite, SearchRun
+from app.models import Application, ApplicationEvent, EmailMessage, Job, JobSite, SearchRun
 from app.schemas.job import JobSummary
 
 router = APIRouter(prefix="/api", tags=["stats"])
 
-SUBMITTED = ("applied", "interviewing", "offer", "rejected", "ghosted")
+SUBMITTED = ("referred", "applied", "interviewing", "offer", "rejected", "ghosted")
 REPLIED = ("interviewing", "offer", "rejected")
 STALE_DAYS = 14
 
@@ -41,16 +41,34 @@ class Filters:
         status: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        q: str | None = None,
     ):
         self.company, self.site, self.run = company, site, run
+        self.q = (q or "").strip().casefold()
         self.location_tier, self.work_mode, self.status = location_tier, work_mode, status
         self.date_from, self.date_to = date_from, date_to
 
 
+def _interviewed(db: Session) -> set[uuid.UUID]:
+    """曾经进入面试的职位：状态历史里出现过面试中 / Offer，或有面试信挂在这个职位上
+    （例如面试之后被拒，状态已经是「被拒」）。"""
+    by_event = (
+        select(Application.job_id)
+        .join(ApplicationEvent, ApplicationEvent.application_id == Application.id)
+        .where(ApplicationEvent.to_status.in_(("interviewing", "offer")))
+    )
+    by_mail = select(EmailMessage.job_id).where(EmailMessage.kind == "interview", EmailMessage.job_id.is_not(None))
+    return set(db.scalars(by_event)) | set(db.scalars(by_mail))
+
+
 def _rows(db: Session, f: Filters) -> list[dict[str, Any]]:
     rows = [dict(r._mapping) for r in db.execute(text("SELECT * FROM v_job_overview"))]
+    interviewed = _interviewed(db)
     out = []
     for r in rows:
+        status = r["application_status"]
+        # 漏斗的「面试」：曾经进入面试、而且投递记录还在（已删除的不算）
+        r["interviewed"] = status in ("interviewing", "offer") or (status in SUBMITTED and r["job_id"] in interviewed)
         if f.company and r["company_id"] != f.company:
             continue
         if f.site and f.site not in r["sites"]:
@@ -67,6 +85,8 @@ def _rows(db: Session, f: Filters) -> list[dict[str, Any]]:
         if f.date_from and created < f.date_from:
             continue
         if f.date_to and created > f.date_to:
+            continue
+        if f.q and f.q not in " ".join(r[k] or "" for k in ("title", "company", "location_text")).casefold():
             continue
         out.append(r)
     return out
@@ -112,7 +132,7 @@ STAGES = [
     ("found", "搜索到", lambda r: True),
     ("saved", "收藏以上", lambda r: r["application_status"] not in ("none", "dismissed")),
     ("applied", "已投递", lambda r: r["application_status"] in SUBMITTED),
-    ("interviewing", "面试", lambda r: r["application_status"] in ("interviewing", "offer")),
+    ("interviewing", "面试", lambda r: r["interviewed"]),
     ("offer", "Offer", lambda r: r["application_status"] == "offer"),
 ]
 
@@ -172,8 +192,9 @@ def _filters(
     status: str | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    q: str | None = None,
 ) -> Filters:
-    return Filters(company, site, run, location_tier, work_mode, status, date_from, date_to)
+    return Filters(company, site, run, location_tier, work_mode, status, date_from, date_to, q)
 
 
 @router.get("/stats")
@@ -190,7 +211,7 @@ def stats(f: Filters = Depends(_filters), db: Session = Depends(get_db)):
             s["found"] += 1
             s["kept"] += r["first_outcome"] == "kept"
             s["applied"] += r["application_status"] in SUBMITTED
-            s["interviews"] += r["application_status"] in ("interviewing", "offer")
+            s["interviews"] += r["interviewed"]
     site_names = dict(db.execute(select(JobSite.id, JobSite.name)).all())
 
     exclusions = Counter(reason for r in rows for reason in _reasons(r))
@@ -205,6 +226,7 @@ def stats(f: Filters = Depends(_filters), db: Session = Depends(get_db)):
             "found": len(rows),
             "saved": status.get("saved", 0),
             "submitted": submitted,
+            "referred": status.get("referred", 0),
             "interviewing": status.get("interviewing", 0),
             "offer": status.get("offer", 0),
             "rejected": status.get("rejected", 0),

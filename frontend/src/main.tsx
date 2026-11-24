@@ -2,8 +2,11 @@ import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, HashRouter, Link, NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { api, DEMO, JobPreferences, Provider, Resume } from "./api";
+import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { InkProvider } from "@/lib/ink/react";
 import { Loading } from "./pages/ui";
-import "./styles.css";
+import "./looseleaf.css";
 import JobDetail from "./pages/JobDetail";
 import Jobs from "./pages/Jobs";
 import Materials from "./pages/Materials";
@@ -12,6 +15,7 @@ import ResumeVersions, { ResumeUpload } from "./pages/ResumeManage";
 import Resumes from "./pages/Resumes";
 import Settings from "./pages/Settings";
 import Stats from "./pages/Stats";
+import Outreach from "./pages/Outreach";
 import { lang, setLang, t } from "./i18n";
 
 const NARROW = ["/resumes", "/preferences", "/settings"];
@@ -52,6 +56,19 @@ function SetupRequired({ setup }: { setup: Setup }) {
   );
 }
 
+/** 导航项：当前页用荧光笔底色（secondary），其他是 ghost。 */
+function NavItem({ to, end, title, children }: { to: string; end?: boolean; title?: string; children: React.ReactNode }) {
+  const { pathname } = useLocation();
+  const on = end ? pathname === to : pathname === to || pathname.startsWith(`${to}/`);
+  return (
+    <Button asChild variant={on ? "secondary" : "ghost"} size="sm">
+      <NavLink to={to} end={end} title={title}>
+        {children}
+      </NavLink>
+    </Button>
+  );
+}
+
 function App() {
   const { pathname } = useLocation();
   const [model, setModel] = useState(t("模型连接"));
@@ -83,33 +100,28 @@ function App() {
       <header className="topbar">
         <div className="topbar-inner">
           <h1 className="brand">
-            <img src={`${import.meta.env.BASE_URL}icon.svg`} width="32" height="32" alt="" />
-            <img src={`${import.meta.env.BASE_URL}wordmark.svg`} width="208" height="29" alt="Job Hunter" />
+            <img src={`${import.meta.env.BASE_URL}icon.svg`} width="30" height="30" alt="" />
+            Job Hunter
           </h1>
           <nav className="nav" aria-label={t("主导航")}>
-            <NavLink to="/jobs" end>
-              {t("职位")}
-            </NavLink>
-            <NavLink to="/stats">{t("投递统计")}</NavLink>
-            <NavLink to="/materials">{t("材料历史")}</NavLink>
+            <NavItem to="/jobs" end>{t("职位")}</NavItem>
+            <NavItem to="/outreach">{t("内推")}</NavItem>
+            <NavItem to="/stats">{t("投递统计")}</NavItem>
+            <NavItem to="/materials">{t("材料历史")}</NavItem>
             <span className="nav-sep" aria-hidden="true" />
-            <NavLink to="/resumes">{t("履历与评分")}</NavLink>
-            <NavLink to="/preferences">{t("求职需求")}</NavLink>
+            <NavItem to="/resumes">{t("履历与评分")}</NavItem>
+            <NavItem to="/preferences">{t("求职需求")}</NavItem>
           </nav>
-          <NavLink to="/settings" className="model-link" title={t("模型连接")}>
-            {t(model)}
-          </NavLink>
-          <a className="model-link" href="https://github.com/catflyx520" target="_blank" rel="noreferrer noopener">
-            GitHub · catflyx520
-          </a>
-          <div className="seg lang-switch" role="group" aria-label="Language / 语言">
-            <button type="button" className={lang === "en" ? "on" : ""} aria-pressed={lang === "en"} onClick={() => setLang("en")}>
-              EN
-            </button>
-            <button type="button" className={lang === "zh" ? "on" : ""} aria-pressed={lang === "zh"} onClick={() => setLang("zh")}>
-              中文
-            </button>
-          </div>
+          <NavItem to="/settings" title={t("模型连接")}>{t(model)}</NavItem>
+          <Button asChild variant="ghost" size="sm">
+            <a href="https://github.com/catflyx520" target="_blank" rel="noreferrer noopener">
+              GitHub · catflyx520
+            </a>
+          </Button>
+          <ToggleGroup type="single" variant="outline" tone="hi" size="sm" aria-label="Language / 语言" value={lang} onValueChange={(v) => v && setLang(v as "en" | "zh")}>
+            <ToggleGroupItem value="en">EN</ToggleGroupItem>
+            <ToggleGroupItem value="zh">中文</ToggleGroupItem>
+          </ToggleGroup>
         </div>
       </header>
       <main className={`page${narrow ? " narrow" : ""}`}>
@@ -124,6 +136,8 @@ function App() {
           <Route path="/jobs" element={<Jobs />} />
           <Route path="/jobs/:id" element={<JobDetail />} />
           <Route path="/stats" element={<Stats />} />
+          <Route path="/outreach" element={<Outreach />} />
+          <Route path="/outreach/:contactId" element={<Outreach />} />
           <Route path="/materials" element={<Materials />} />
           <Route path="/resumes" element={DEMO ? <Navigate to="/resumes/content" replace /> : <Resumes view="score" />} />
           <Route path="/resumes/content" element={<Resumes view="content" />} />
@@ -144,8 +158,10 @@ const Router = DEMO ? HashRouter : BrowserRouter;
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <Router>
-      <App />
-    </Router>
+    <InkProvider>
+      <Router>
+        <App />
+      </Router>
+    </InkProvider>
   </React.StrictMode>,
 );

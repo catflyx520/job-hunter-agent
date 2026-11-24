@@ -53,7 +53,8 @@ def test_ingest_extracts_and_flags_exclusion(client):
     # 同一个职位再贴一次 → 更新，不重复
     again = _ingest(client)
     assert again["created"] is False and again["job"]["id"] == job["id"]
-    assert len(client.get("/api/jobs").json()) == 1
+    listed = client.get("/api/jobs").json()
+    assert len(listed) == 1 and listed[0]["found_on"] == ["linkedin"]  # 卡片显示在哪找到
 
 
 def test_match_scores_with_citations(client):
@@ -185,3 +186,31 @@ def test_question_bank_similar(client):
     client.post("/api/materials", data={"kind": "qa", "question": "Why are you a good fit for this role?"})
     found = client.get("/api/materials/similar", params={"q": "Why are you a good fit?"}).json()
     assert found and found[0]["question"].startswith("Why are you")
+
+
+def test_ingest_ashby_url_reads_public_api(client, monkeypatch):
+    """Ashby 职位页要 JavaScript 才有内容，贴网址时改用公开 API。"""
+    from app.search import ats
+
+    board = {
+        "jobs": [
+            {
+                "id": "abc-1",
+                "title": "Senior Backend Engineer - Example Robotics, Inc.",  # 假 provider 按 JD 开头辨认
+                "location": "Los Angeles",
+                "jobUrl": "https://jobs.ashbyhq.com/example/abc-1",
+                "descriptionPlain": SYNTHETIC_JD,
+            }
+        ]
+    }
+    monkeypatch.setattr(ats, "fetch_json", lambda url: board)
+    _setup(client)
+    r = client.post("/api/jobs/ingest", json={"url": "https://jobs.ashbyhq.com/example/abc-1?src=x"})
+    assert r.status_code == 201, r.text
+    job = r.json()["job"]
+    assert job["verification_source"] == "ats_api" and job["status"] == "active"
+    assert job["sources"] == [{"site_id": "ashby", "url": "https://jobs.ashbyhq.com/example/abc-1"}]
+    assert [j["id"] for j in client.get("/api/jobs?pasted=true").json()] == [job["id"]]
+
+    gone = client.post("/api/jobs/ingest", json={"url": "https://jobs.ashbyhq.com/example/closed-9"})
+    assert gone.status_code == 422 and "Ashby" in gone.json()["detail"]

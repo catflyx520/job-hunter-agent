@@ -1,3 +1,5 @@
+import path from "node:path";
+import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import { existsSync } from "node:fs";
@@ -6,7 +8,8 @@ import { existsSync } from "node:fs";
 const apiPort = process.env.API_PORT ?? "8000";
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
+  resolve: { alias: { "@": path.resolve(__dirname, "src") } },
   define: {
     "import.meta.env.DEMO_RESUME_AVAILABLE": JSON.stringify(existsSync(new URL("./public/demo-resume.json", import.meta.url))),
   },

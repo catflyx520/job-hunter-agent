@@ -14,14 +14,23 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db
 from app.core.i18n import tr
 from app.jobs.exclusion import blacklist_reasons
-from app.models import Application, ApplicationEvent, Job, Material, Preferences, Resume
+from app.models import Application, ApplicationEvent, EmailMessage, Job, Material, Preferences, Resume
 from app.schemas.profile import Blacklist, JobPreferences
 
 router = APIRouter(prefix="/api", tags=["applications"])
 
-Status = Literal["saved", "applied", "interviewing", "offer", "rejected", "ghosted", "dismissed"]
+Status = Literal["saved", "referred", "applied", "interviewing", "offer", "rejected", "ghosted", "dismissed"]
 # 这些状态代表「已经投出去了」：第一次进入时记下投递时间（就是用户标记的时间）
-SUBMITTED = {"applied", "interviewing", "offer", "rejected", "ghosted"}
+SUBMITTED = {"referred", "applied", "interviewing", "offer", "rejected", "ghosted"}
+
+
+class EmailEvidence(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    from_addr: str
+    subject: str
+    received_at: datetime
+    gmail_url: str
 
 
 class EventOut(BaseModel):
@@ -32,6 +41,8 @@ class EventOut(BaseModel):
     to_status: str
     note: str | None
     at: datetime
+    source: str = "user"
+    email_message: EmailEvidence | None = None  # 邮件造成的变更：信件证据
 
 
 class ApplicationOut(BaseModel):
@@ -68,17 +79,50 @@ def _app(db: Session, job_id: uuid.UUID) -> Application | None:
     return db.scalar(select(Application).where(Application.job_id == job_id))
 
 
-def change_status(db: Session, app: Application, to: str, note: str | None = None) -> None:
-    """改状态并新增一笔历史。状态没变就不记。"""
+def change_status(
+    db: Session,
+    app: Application,
+    to: str,
+    note: str | None = None,
+    *,
+    email: EmailMessage | None = None,
+    applied_at: datetime | None = None,
+) -> None:
+    """改状态并新增一笔历史。状态没变就不记。
+    email 不为空时是邮件造成的变更：历史附上信件、时间用收信时间；投递时间只用传入的 applied_at（不编造），也不挂履历。"""
     if app.status == to:
         return
-    db.add(ApplicationEvent(application_id=app.id, from_status=app.status, to_status=to, note=note or None))
+    ev = ApplicationEvent(application_id=app.id, from_status=app.status, to_status=to, note=note or None)
+    if email is not None:
+        ev.source, ev.email_message_id, ev.at = "email", email.id, email.received_at
+    db.add(ev)
     if to == "dismissed":
         app.previous_status = app.status
     if to in SUBMITTED and app.applied_at is None:
-        app.applied_at = datetime.now(UTC)
-        app.resume_id = app.resume_id or db.scalar(select(Resume.id).where(Resume.is_active.is_(True)))
+        if email is None:
+            app.applied_at = datetime.now(UTC)
+            app.resume_id = app.resume_id or db.scalar(select(Resume.id).where(Resume.is_active.is_(True)))
+        else:
+            app.applied_at = applied_at
     app.status = to
+
+
+def mark_referred(db: Session, job_id: uuid.UUID, note: str) -> str:
+    """发出内推请求后：还没投递（没有记录、收藏、已删除）就改成 referred；已经是 referred 或更后面的状态不动。回传目前状态。"""
+    app = _app(db, job_id)
+    if app is None:
+        resume_id = db.scalar(select(Resume.id).where(Resume.is_active.is_(True)))
+        app = Application(job_id=job_id, status="referred", applied_at=datetime.now(UTC), resume_id=resume_id)
+        db.add(app)
+        db.flush()
+        db.add(ApplicationEvent(application_id=app.id, from_status=None, to_status="referred", note=note))
+    elif app.status in ("saved", "dismissed"):
+        # 删除前已经投递过的，还原成原来的状态，不往回退成 referred
+        back = app.previous_status if app.status == "dismissed" and app.previous_status in SUBMITTED else "referred"
+        change_status(db, app, back, note)
+        app.previous_status = None  # 用户改变主意了，不再是「已删除」
+    db.flush()
+    return app.status
 
 
 @router.get("/jobs/{job_id}/application", response_model=ApplicationOut | None)

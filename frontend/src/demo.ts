@@ -4,11 +4,16 @@
 import type {
   Application,
   ApplicationStatus,
+  ContactDetail,
+  ContactSummary,
   JobDetail,
   JobPreferences,
   JobSite,
   JobSummary,
+  KindStyle,
   Material,
+  StyleRule,
+  StyleRules,
   ParsedResume,
   Resume,
   RunJob,
@@ -64,7 +69,7 @@ interface Row {
 
 const ROWS: Row[] = [
   { title: "Senior Full Stack Engineer", company: "Brightloop Labs", place: "Remote, US", mode: "remote", pay: [150000, 190000], policy: "explicit_yes", visa: "both", tier: 1, score: 91, site: "greenhouse", days: 1 },
-  { title: "AI Product Engineer", company: "Kestrel Robotics", place: "San Francisco, CA", mode: "hybrid", pay: [165000, 210000], policy: "unclear", visa: "both", tier: 3, score: 86, site: "ashby", days: 2 },
+  { title: "AI Product Engineer", company: "Kestrel Robotics", place: "San Francisco, CA", mode: "hybrid", pay: [165000, 210000], policy: "unclear", visa: "both", tier: 3, score: 86, site: "ashby", days: 2, status: "referred" },
   { title: "Software Engineer, Platform", company: "Meridian Cloudworks", place: "New York, NY", mode: "hybrid", pay: [140000, 175000], policy: "explicit_yes", visa: "h1b", tier: 2, score: 82, site: "lever", days: 2 },
   { title: "Frontend Engineer", company: "Nimbus Learning Co", place: "Remote, US", mode: "remote", pay: [125000, 155000], policy: "unclear", visa: "h1b", tier: 1, score: 78, site: "greenhouse", days: 3 },
   { title: "Backend Engineer", company: "Quarry Data Works", place: "Austin, TX", mode: "onsite", pay: [130000, 160000], policy: "unclear", visa: "none", tier: null, score: 68, site: "web", days: 3 },
@@ -86,7 +91,7 @@ const ROWS: Row[] = [
 ];
 
 const SITE_NAMES: Record<string, string> = { greenhouse: "Greenhouse", lever: "Lever", ashby: "Ashby", web: "Web search" };
-const SUBMITTED: (string | undefined)[] = ["applied", "interviewing", "offer", "rejected", "ghosted"];
+const SUBMITTED: (string | undefined)[] = ["referred", "applied", "interviewing", "offer", "rejected", "ghosted"];
 const RUN_ID = "demo-run";
 const recommend = (s: number | null) => (s == null ? null : s >= 75 ? "apply" : s >= 55 ? "maybe" : "skip");
 
@@ -117,6 +122,7 @@ function summary(r: Row, i: number): JobSummary {
     application_status: r.status ?? null,
     applied_at: SUBMITTED.includes(r.status) ? ago(r.days) : null,
     status_at: r.status ? ago(Math.max(r.days - 1, 0)) : null,
+    found_on: [r.site],
   };
 }
 
@@ -232,6 +238,9 @@ function letter(resume: ParsedResume, i: number): Material {
     created_at: ago(r.days),
     images: [],
     evidence: {},
+    style_rules: i === 0 ? ["Open with the specific team, not a generic greeting.", "Keep paragraphs to three sentences or fewer."] : null,
+    job_title: r.title,
+    company: r.company,
   };
 }
 
@@ -266,6 +275,7 @@ const PREFERENCES: JobPreferences = {
   exclude_new_grad_only: true,
   work_authorization: { status: null, authorized_in_us: null, needs_sponsorship_now: null, needs_sponsorship_future: null, note: "" },
   search: { sites: Object.keys(SITE_NAMES), per_site_limit: 20, total_limit: 100, target_jobs: 20 },
+  linkedin_premium: false,
 };
 
 const SITES: JobSite[] = Object.entries(SITE_NAMES).map(([id, name], i) => ({
@@ -307,7 +317,6 @@ const runDetail = (): SearchRunDetail => ({
     ...j,
     outcome: outcome(ROWS[i]),
     exclusion_reasons: ROWS[i].excluded ? [{ code: ROWS[i].excluded![0], label: ROWS[i].excluded![1] }] : [],
-    found_on: [ROWS[i].site],
   })),
 });
 
@@ -420,7 +429,62 @@ function resumeRow(parsed: ParsedResume): Resume {
   };
 }
 
+// Reach out：虚构的联系人与往来消息。消息只提职位，不提履历细节（demo 可能放真人履历）
+const DEMO_CONTACTS: { name: string; title: string; role: ContactDetail["role_kind"]; job: number; email: string | null; msgs: [("out" | "in"), ContactDetail["messages"][number]["channel"], number, string][] }[] = [
+  { name: "Maya Chen", title: "Engineering Manager", role: "eng_manager", job: 9, email: null, msgs: [
+    ["out", "connect_note", 14, "Hi Maya, I applied for the Senior Software Engineer role on your team and would love to hear how the team works. Open to connecting?"],
+    ["in", "linkedin_message", 13, "Thanks for reaching out! Happy to pass your profile to our recruiter."],
+    ["out", "linkedin_message", 13, "Thank you, Maya! Here is the job link. Let me know if anything else would help."],
+  ] },
+  { name: "Jordan Lee", title: "Technical Recruiter", role: "recruiter", job: 10, email: "jordan.lee@example.com", msgs: [
+    ["out", "email", 15, "Hi Jordan, I'm interested in the Web Platform Engineer opening. Could you refer me or point me to the hiring manager?"],
+    ["in", "email", 12, "Thanks, I've submitted you as a referral. Watch your inbox for next steps."],
+  ] },
+  { name: "Sam Rivera", title: "Software Engineer", role: "engineer", job: 1, email: null, msgs: [
+    ["out", "connect_note", 2, "Hi Sam, I saw the AI Product Engineer role on your team. Would you be open to a quick chat or a referral?"],
+  ] },
+];
+
+function contactDetail(i: number): ContactDetail {
+  const c = DEMO_CONTACTS[i];
+  const job = JOBS[c.job];
+  return {
+    id: `demo-contact-${i}`,
+    company_id: job.company.id,
+    company_name: job.company.display_name,
+    full_name: c.name,
+    title: c.title,
+    linkedin_url: null,
+    email: c.email,
+    email_source: c.email ? "user" : null,
+    email_confidence: null,
+    found_via: "web_search",
+    role_kind: c.role,
+    notes: null,
+    created_at: ago(16),
+    messages: c.msgs.map(([direction, channel, days, body], k) => ({
+      id: `demo-msg-${i}-${k}`, contact_id: `demo-contact-${i}`, job_id: job.id, direction, channel,
+      style: direction === "out" ? (c.role === "recruiter" ? "general" : "technical") : null,
+      subject: channel === "email" && direction === "out" ? `Referral for ${job.title}` : null, body, material_meta: null, sent_at: ago(days),
+    })),
+    jobs: [job],
+  };
+}
+
+function contacts(q: URLSearchParams): ContactSummary[] {
+  const rows = DEMO_CONTACTS.map((_, i) => contactDetail(i)).map((c) => {
+    const last = c.messages[c.messages.length - 1];
+    return { id: c.id, full_name: c.full_name, title: c.title, company_id: c.company_id, company_name: c.company_name, last_message_at: last.sent_at, last_direction: last.direction, message_count: c.messages.length };
+  });
+  const f = q.get("filter");
+  return rows
+    .filter((r) => (!q.get("company_id") || r.company_id === q.get("company_id")) && (f === "waiting" ? r.last_direction === "out" : f === "replied" ? r.last_direction === "in" : true))
+    .sort((a, b) => b.last_message_at.localeCompare(a.last_message_at));
+}
+
 async function route(path: string, q: URLSearchParams): Promise<unknown> {
+  const contact = path.match(/^\/api\/contacts\/demo-contact-(\d+)$/);
+  if (contact) return contactDetail(Number(contact[1]));
   const resume = await loadResume();
   const job = path.match(/^\/api\/jobs\/([^/]+)(\/application)?$/);
   if (job) {
@@ -457,12 +521,39 @@ async function route(path: string, q: URLSearchParams): Promise<unknown> {
       return [RUN];
     case `/api/search-runs/${RUN_ID}`:
       return runDetail();
+    case "/api/contacts":
+      return contacts(q);
+    case "/api/email/gmail":
+      return { connected: false, email: null, connected_at: null, client_id: null, has_client_secret: false, mode: null, last_sync: null };
+    case "/api/email/syncs/latest":
+      return { id: null, status: null, summary: null, needs_review: [] };
+    case "/api/outreach/hunter":
+      return { enabled: false, key_last4: null };
     case "/api/jobs":
-      return JOBS;
+      return q.get("pasted") ? [] : JOBS;
     case "/api/materials": {
       const all = [letter(resume, 0), letter(resume, 8)];
       const jobId = q.get("job_id");
       return jobId ? all.filter((m) => m.job_id === jobId) : all;
+    }
+    case "/api/style-rules": {
+      const rule = (id: string, text: string, origin: "learned" | "manual", status: "active" | "removed", n: number): StyleRule => ({
+        id, kind: "cover_letter", text, origin, status, source_count: n, updated_at: ago(3),
+      });
+      const empty: KindStyle = { rules: [], removed: [], samples: 0, pending: 0 };
+      return {
+        cover_letter: {
+          rules: [
+            rule("demo-rule-1", "Open with the specific team, not a generic greeting.", "learned", "active", 3),
+            rule("demo-rule-2", "Keep paragraphs to three sentences or fewer.", "learned", "active", 2),
+            rule("demo-rule-3", "Close with one concrete next step.", "manual", "active", 0),
+          ],
+          removed: [rule("demo-rule-4", "Avoid the word passionate.", "learned", "removed", 1)],
+          samples: 3,
+          pending: 0,
+        },
+        qa: empty,
+      } satisfies StyleRules;
     }
     case "/api/materials/similar":
       return [];

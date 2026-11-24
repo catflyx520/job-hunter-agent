@@ -38,6 +38,8 @@ TASKS = (
     "qa",
     "search",
     "embedding",
+    "outreach",
+    "email_classify",
 )
 CHUNK_SECTIONS = ("summary", "experience", "project", "skills", "education")
 FACT_VALUE_TYPES = ("text", "number", "date", "boolean", "choice")
@@ -99,7 +101,9 @@ class TaskRoute(Base):
 
 class Integration(Base):
     __tablename__ = "integrations"
-    __table_args__ = (CheckConstraint(_in("kind", ("tavily", "searxng")), name="ck_integrations_kind"),)
+    __table_args__ = (
+        CheckConstraint(_in("kind", ("tavily", "searxng", "hunter", "gmail", "browser")), name="ck_integrations_kind"),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     kind: Mapped[str] = mapped_column(Text, nullable=False)
@@ -215,5 +219,7 @@ class Fact(Base):
 # M2：C（职位）、D（签证）、E（材料）组；M4：F（投递）组。放在最后 import，避免循环引用。
 from app.models.applications import *  # noqa: E402,F403
 from app.models.jobs import *  # noqa: E402,F403
+from app.models.mail import *  # noqa: E402,F403
 from app.models.materials import *  # noqa: E402,F403
+from app.models.outreach import *  # noqa: E402,F403
 from app.models.sponsor import *  # noqa: E402,F403

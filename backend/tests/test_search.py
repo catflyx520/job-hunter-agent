@@ -32,6 +32,11 @@ from tests.samples import GREENHOUSE_BOARD, PAGES, make_pdf
         ("wttj", "https://www.welcometothejungle.com/en/companies/acme/jobs/software-engineer_ny", "software-engineer_ny"),
         ("wwr", "https://weworkremotely.com/remote-jobs/acme-full-stack-engineer", "acme-full-stack-engineer"),
         ("wwr", "https://weworkremotely.com/categories/remote-full-stack-programming-jobs", None),
+        # 公司招聘板：搜索只用来找公司，回传的是 board 名
+        ("greenhouse", "https://job-boards.greenhouse.io/acme/jobs/4012345", "acme"),
+        ("lever", "https://jobs.lever.co/acme/0f1e2d3c", "acme"),
+        ("ashby", "https://jobs.ashbyhq.com/acme", "acme"),
+        ("ashby", "https://jobs.lever.co/acme/0f1e2d3c", None),
     ],
 )  # fmt: skip
 def test_job_page_rules(site, url, job_id):
@@ -69,6 +74,19 @@ def test_title_matching_uses_distinctive_role_words():
     assert sites.title_matches("Senior Backend Developer", prefs)
     assert not sites.title_matches("Account Executive", prefs)
     assert not sites.title_matches("Frontend Engineer", prefs)
+
+
+def test_title_matching_plain_software_engineer_and_non_engineer_titles():
+    """目标写了 Software Engineer 就要认得这个职称；工程师类的目标不配产品经理、数据科学家这类职称。"""
+    prefs = JobPreferences(target_roles=["AI Engineer", "Software Engineer", "Full stack Engineer"])
+    assert sites.title_matches("Senior Software Engineer, Platform", prefs)
+    assert sites.title_matches("Software Developer II", prefs)
+    assert sites.title_matches("Staff AI Product Engineer", prefs)
+    assert not sites.title_matches("Frontend Engineer", prefs)
+    assert not sites.title_matches("Senior Product Manager, Applied AI", prefs)
+    assert not sites.title_matches("Senior Data Scientist, Full Stack", prefs)
+    # 目标不是工程师类时，照旧只看目标的字
+    assert sites.title_matches("Senior Product Manager, Applied AI", JobPreferences(target_roles=["Product Manager"]))
 
 
 def test_collect_keeps_only_job_pages_and_dedupes():
@@ -220,6 +238,7 @@ def test_search_run_end_to_end(search_client):
     assert excluded["exclusion_reasons"][0]["code"] == "explicit_no_sponsorship"
     assert excluded["score"] is None  # 被排除的不花模型额度评分
     assert run["counts"] == {"kept": 2, "excluded": 1}
+    assert c.get("/api/jobs?pasted=true").json() == []  # 搜索找到的不算贴上的
 
     gh = next(j for j in jobs if j["title"] == "Backend Engineer, Platform")
     detail = c.get(f"/api/jobs/{gh['id']}").json()
@@ -364,11 +383,79 @@ def test_removed_job_page_is_excluded_as_expired(search_client, monkeypatch):
         )
 
 
+def test_job_page_redirected_to_a_list_is_expired_without_extraction(search_client, monkeypatch):
+    """LinkedIn 把下架的职位转到列表页：记成已下架，不把列表页交给模型抽取。"""
+    import app.search.process as process_mod
+
+    fixture_fetch = process_mod.fetch_page
+
+    def fake_fetch(url):
+        if "northwind" not in url:
+            return fixture_fetch(url)
+        return FetchedPage(
+            url="https://www.linkedin.com/jobs/backend-engineer-jobs?trk=expired_jd_redirect",
+            text="Backend Engineer jobs in United States\n" + "Another company is hiring. " * 40,
+            title="",
+            retrieved_at=__import__("datetime").datetime.now(),
+        )
+
+    monkeypatch.setattr(process_mod, "fetch_page", fake_fetch)
+    c = search_client
+    c.fake.calls.clear()
+    run = c.get(f"/api/search-runs/{c.post('/api/search-runs', json={}).json()['id']}").json()
+    linkedin = next(s for s in run["sites"] if s["site_id"] == "linkedin")
+    assert "已下架 1" in linkedin["message"] and "失败" not in linkedin["message"]
+    assert not any("Another company is hiring" in m.content for msgs, _, _ in c.fake.calls for m in msgs)
+
+
+def test_ats_site_finds_new_company_boards_by_search(search_client, monkeypatch):
+    """ATS 网站先用搜索找公司的 board（搜到的职位旧了也没关系），读得到的才记下来，职位从公开 API 拿。"""
+    import app.search.ats as ats_mod
+    from tests.samples import SEARCH_LEADS
+
+    found = [
+        {"url": "https://job-boards.greenhouse.io/newco/jobs/900?gh_src=x", "title": "Old posting", "company": "Newco"},
+        {"url": "https://boards.greenhouse.io/acmeco/jobs/101", "title": "Backend Engineer, Platform"},  # 已知的公司
+        {"url": "https://job-boards.greenhouse.io/goneco/jobs/1", "title": "Backend Engineer", "company": "Goneco"},
+    ]
+    monkeypatch.setitem(SEARCH_LEADS, "Greenhouse", {"jobs": found})
+    newco = {
+        "jobs": [
+            {"id": 555, "title": "Backend Engineer", "absolute_url": "https://job-boards.greenhouse.io/newco/jobs/555",
+             "location": {"name": "Los Angeles, CA"}, "first_published": "2026-11-10T10:00:00Z",
+             "content": "Build Python services for our data team."}
+        ]
+    }  # fmt: skip
+
+    def fake_json(url):
+        if "/goneco/" in url:
+            raise FetchError("网站回应 404（职位可能已下架）。")
+        return newco if "/newco/" in url else GREENHOUSE_BOARD
+
+    monkeypatch.setattr(ats_mod, "fetch_json", fake_json)
+    c = search_client
+    run = c.get(f"/api/search-runs/{c.post('/api/search-runs', json={}).json()['id']}").json()
+    gh = next(s for s in run["sites"] if s["site_id"] == "greenhouse")
+    assert gh["status"] == "ok" and gh["found_count"] == 2 and gh["kept_count"] == 2
+    assert "1 家新公司" in gh["message"]
+    boards = {b["token"]: b["company"] for b in c.get("/api/ats-boards").json()}
+    assert boards == {"acmeco": "Acmeco", "newco": "Newco"}  # 读不到的 goneco 不记
+    job = next(j for j in run["jobs"] if j["company"]["display_name"] == "Newco")
+    assert job["title"] == "Backend Engineer" and job["outcome"] == "kept"
+
+
 # ---------- 目标可投职位数 ----------
 
 
-def _graph_process(monkeypatch, outcomes, first, more=(), target=2, cap=100):
-    """不碰数据库地跑 process 节点：outcomes 是网址 → 结果；more 是每一轮补搜找到的网址。"""
+LINKEDIN = {"id": "linkedin", "name": "LinkedIn", "access_method": "web_search", "max_results": 20}
+GREENHOUSE = {"id": "greenhouse", "name": "Greenhouse", "access_method": "ats_api", "max_results": 20}
+
+
+def _graph_process(monkeypatch, outcomes, first, more=(), target=2, cap=100, sites=(LINKEDIN,), search=None):
+    """不碰数据库地跑 process 节点：outcomes 是网址 → 结果；first 是已经找到的网址；more 是每一轮补搜找到的网址。
+
+    search：第一次用模型搜索时每个网站的做法（网站 → SiteReport）；不给就是什么都没找到。
+    """
     import app.graphs.search as g
 
     processed, excludes = [], []
@@ -378,23 +465,21 @@ def _graph_process(monkeypatch, outcomes, first, more=(), target=2, cap=100):
         processed.append(lead.url)
         return g.LeadResult(lead.site_id, lead.url, outcomes[lead.url], job_id=lead.url)
 
-    def fake_discover(site, prefs, exclude=()):
+    def fake_discover(site, prefs, exclude=(), part="all", run_id=None):
+        if part == "search":
+            return search(site) if search else g.SiteReport(site["id"], "ok")
         excludes.append(set(exclude))
         urls = next(rounds, [])
         return g.SiteReport(site["id"], "ok", [g.Lead(site["id"], u) for u in urls])
 
     monkeypatch.setattr(g, "process_lead", fake_process)
     monkeypatch.setattr(g, "discover_site", fake_discover)
+    monkeypatch.setattr(g, "record_result", lambda run_id, res: None)
     out = g.process(
         {
             "run_id": "t",
-            "params": {
-                "sites": [{"id": "linkedin", "name": "LinkedIn", "access_method": "web_search", "max_results": 20}],
-                "preferences": PREFS,
-                "total_limit": cap,
-                "target_jobs": target,
-            },
-            "reports": [g.SiteReport("linkedin", "ok", [g.Lead("linkedin", u) for u in first])],
+            "params": {"sites": list(sites), "preferences": PREFS, "total_limit": cap, "target_jobs": target},
+            "reports": [g.SiteReport(sites[0]["id"], "ok", [g.Lead(sites[0]["id"], u) for u in first])],
         }
     )
     return processed, excludes, out
@@ -416,7 +501,7 @@ def test_searches_again_when_leads_run_out(monkeypatch):
     )
     assert processed == ["https://a/1", "https://a/2", "https://a/3"]
     assert excludes == [{"https://a/1", "https://a/2"}]  # 补搜时避开看过的
-    assert [len(r.leads) for r in out["reports"]] == [1]
+    assert [len(r.leads) for r in out["reports"] if r.leads] == [1]
 
 
 def test_stops_when_search_finds_nothing_new_or_hits_cap(monkeypatch):
@@ -452,7 +537,112 @@ def test_merge_reports_keeps_one_row_per_site():
     merged = g.merge_reports(
         [g.SiteReport("a", "ok", [g.Lead("a", "u1")], "first"), g.SiteReport("a", "ok", [g.Lead("a", "u2")], "more")]
     )
-    assert len(merged) == 1 and len(merged[0].leads) == 2 and merged[0].message == "first"
+    assert len(merged) == 1 and len(merged[0].leads) == 2 and merged[0].message == "first more"
+    # skipped 的那份只补说明，不改状态；两份状态不同就是 partial
+    status = lambda a, b: g.merge_reports([g.SiteReport("a", a), g.SiteReport("a", b)])[0].status  # noqa: E731
+    assert (status("ok", "skipped"), status("skipped", "failed"), status("ok", "failed")) == ("ok", "failed", "partial")
+
+
+# ---------- 边搜边处理 ----------
+
+
+def test_known_board_jobs_are_processed_before_searched_ones(monkeypatch):
+    """已知公司 board 的职位不用等模型搜索：先处理；搜索的结果到了再接着处理。"""
+    import threading
+
+    import app.graphs.search as g
+
+    started = threading.Event()
+
+    def search(site):
+        if site["id"] == "greenhouse":
+            return g.SiteReport("greenhouse", "ok")
+        started.wait(5)  # 等第一个职位开始处理后才「搜完」
+        return g.SiteReport("linkedin", "ok", [g.Lead("linkedin", "https://li/1")])
+
+    outcomes = {"https://gh/1": "kept", "https://li/1": "kept"}
+    real = g.LeadResult
+
+    def result(*args, **kwargs):
+        started.set()
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(g, "LeadResult", result)
+    processed, _, out = _graph_process(
+        monkeypatch, outcomes, ["https://gh/1"], sites=(GREENHOUSE, LINKEDIN), search=search
+    )
+    assert processed == ["https://gh/1", "https://li/1"]
+    assert [r.outcome for r in out["results"]] == ["kept", "kept"]
+
+
+def test_does_not_wait_for_slow_search_once_target_is_reached(monkeypatch):
+    import threading
+
+    import app.graphs.search as g
+
+    release = threading.Event()
+
+    def search(site):
+        if site["id"] == "linkedin":
+            release.wait(10)
+        return g.SiteReport(site["id"], "ok")
+
+    try:
+        processed, _, out = _graph_process(
+            monkeypatch,
+            {"https://gh/1": "kept"},
+            ["https://gh/1"],
+            target=1,
+            sites=(GREENHOUSE, LINKEDIN),
+            search=search,
+        )
+    finally:
+        release.set()
+    assert processed == ["https://gh/1"]
+    linkedin = [r for r in out["reports"] if r.site_id == "linkedin"]
+    assert [r.status for r in linkedin] == ["skipped"] and "没有等" in linkedin[0].message
+
+
+def test_jobs_are_written_to_the_run_as_they_are_processed(search_client, monkeypatch):
+    """页面不用等整批搜完：finalize 之前，处理好的职位已经在批次里。"""
+    import app.graphs.search as g
+
+    c = search_client
+    seen_before_finalize = {}
+    real = g.finalize
+
+    def finalize(state):
+        run = c.get(f"/api/search-runs/{state['run_id']}").json()
+        seen_before_finalize.update(status=run["status"], outcomes=sorted(j["outcome"] for j in run["jobs"]))
+        return real(state)
+
+    monkeypatch.setattr(g, "finalize", finalize)
+    run_id = c.post("/api/search-runs", json={}).json()["id"]
+    assert seen_before_finalize == {"status": "running", "outcomes": ["excluded", "kept", "kept"]}
+    assert c.get(f"/api/search-runs/{run_id}").json()["counts"] == {"kept": 2, "excluded": 1}
+
+
+def test_record_result_keeps_the_best_outcome_for_a_job(search_client):
+    import uuid
+
+    import app.graphs.search as g
+    from app.core.db import get_sessionmaker
+    from app.models import SearchRunJob
+
+    c = search_client
+    run_id = c.post("/api/search-runs", json={}).json()["id"]
+    job = next(j for j in c.get(f"/api/search-runs/{run_id}").json()["jobs"] if j["outcome"] == "excluded")
+
+    def outcome():
+        with get_sessionmaker()() as db:
+            return db.get(SearchRunJob, (run_id, uuid.UUID(job["id"]))).outcome
+
+    g.record_result(run_id, g.LeadResult("indeed", "u", "duplicate", job["id"]))
+    assert outcome() == "excluded"  # 排名较后的结果不盖掉原来的
+    g.record_result(run_id, g.LeadResult("indeed", "u", "kept", job["id"]))
+    assert outcome() == "kept"
+    g.record_result(run_id, g.LeadResult("indeed", "u", "failed", job["id"]))  # 没变成职位的结果不写
+    assert outcome() == "kept"
 
 
 def test_target_limits_kept_jobs_end_to_end(search_client):

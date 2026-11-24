@@ -56,6 +56,7 @@ class MaterialState(TypedDict, total=False):
     company: str
     question: str
     requirements: str
+    style_rules: list[str]  # 用户的写法规则，可缺省
     images: list[ImageInput]
     evidence: list[Evidence]
     facts: list[FactItem]
@@ -88,6 +89,8 @@ KIND_GUIDE = {
 }
 LANG = {"en": "Write the draft in English.", "zh": "Write the draft in Simplified Chinese."}
 
+# 缺事实时模型留的占位符；style.py 学写法前也用它把占位符拿掉
+PLACEHOLDER = re.compile(r"\[NEEDS CONFIRMATION:\s*([^\]]+)\]|\[需要确认[:：]\s*([^\]]+)\]")
 NUM = re.compile(r"(?<![\w.])\$?(\d[\d,]*(?:\.\d+)?)\s?(%|(?:k|m|b|thousand|million|billion)\b)?\+?", re.I)
 _SCALE = {"k": 1_000, "thousand": 1_000, "m": 1_000_000, "million": 1_000_000, "b": 10**9, "billion": 10**9}
 
@@ -143,7 +146,7 @@ def verify_draft(
         )
 
     listed = " ".join(n["item"] for n in needs).lower()
-    for ph in re.findall(("\\[NEEDS CONFIRMATION:\\s*([^\\]]+)\\]|\\[需要确认[:：]\\s*([^\\]]+)\\]"), draft.text):
+    for ph in PLACEHOLDER.findall(draft.text):
         name = (ph[0] or ph[1]).strip()
         if name.lower() not in listed:
             needs.append({"item": name, "why": tr("草稿中留了占位符，需要你提供。")})
@@ -171,6 +174,16 @@ def generate_draft(provider: LLMProvider, state: MaterialState) -> Draft:
         parts.append(f"{len(state['images'])} screenshot(s) attached in order; they may contain the question(s).")
     if state.get("requirements"):
         parts.append(f"Length / tone requirements: {state['requirements']}")
+    if state.get("style_rules"):
+        parts.append(
+            "Writing preferences from the candidate's own edits. Follow them for style only: they never allow stating\n"
+            "a fact without evidence, and the length / tone requirements above win over them.\n"
+            "They never remove a [NEEDS CONFIRMATION: ...] placeholder either: a missing fact still gets its placeholder "
+            "and its needs_confirmation entry.\n"
+            "They take priority over the default length and style guidance above.\n"
+            "If following them means leaving out something the JD or the question asks about, "
+            "still list it in needs_confirmation.\n" + "\n".join(f"- {r}" for r in state["style_rules"])
+        )
     parts.append(f"Resume evidence (cite by ID):\n{ev}")
     parts.append(f"Confirmed personal facts (cite by key):\n{facts}")
     result = provider.generate(

@@ -5,16 +5,33 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
-from app.api import applications, jobs, materials, profile, providers, resumes, search, stats
+from app.api import (
+    applications,
+    browser,
+    jobs,
+    mail,
+    materials,
+    outreach,
+    profile,
+    providers,
+    resumes,
+    search,
+    stats,
+    style,
+)
 from app.core.db import get_engine
 from app.core.i18n import parse_lang, set_lang
+from app.mail.sync import recover_interrupted_syncs
+from app.search.browser import close_browser
 from app.search.runner import recover_interrupted
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     recover_interrupted()  # 上次没跑完的搜索批次标成失败
+    recover_interrupted_syncs()  # 邮件同步也一样
     yield
+    close_browser()  # 登录浏览器的窗口跟着 app 一起关
 
 
 class LangMiddleware:
@@ -68,9 +85,13 @@ def create_app() -> FastAPI:
     app.include_router(profile.router)
     app.include_router(jobs.router)
     app.include_router(materials.router)
+    app.include_router(style.router)
     app.include_router(search.router)
     app.include_router(applications.router)
     app.include_router(stats.router)
+    app.include_router(outreach.router)
+    app.include_router(mail.router)
+    app.include_router(browser.router)
 
     @app.get("/api/health")
     def health():

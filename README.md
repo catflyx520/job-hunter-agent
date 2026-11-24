@@ -4,7 +4,7 @@ Open-source, local-first job hunting assistant. Connect your own model (API key 
 
 [Chinese](README.zh-CN.md)
 
-> Status: **M4 (local)** — model connections (incl. one-click CLI login), resume review, automatic job search across the sites you pick (public job pages on LinkedIn, Built In, YC and more, plus the public Greenhouse / Lever / Ashby APIs) → de-duplication, hard exclusions, match scores with resume evidence, H-1B / PERM employer history; paste a job URL / JD; cover letters and application answers (with screenshots); application tracking and a stats page. The app never applies to jobs, fills forms, or contacts employers for you.
+> Status: **M4 (local)** — model connections (incl. one-click CLI login), resume review, automatic job search across the sites you pick (public job pages on LinkedIn, Built In, YC and more, plus the public Greenhouse / Lever / Ashby APIs) → de-duplication, hard exclusions, match scores with resume evidence, H-1B / PERM employer history; paste a job URL / JD; cover letters and application answers (with screenshots) that learn your writing style from the edits you save, with the learned rules shown and removable; application tracking and a stats page. The app never applies to jobs, fills forms, or contacts employers for you.
 
 ## Requirements
 
@@ -48,15 +48,23 @@ The CLI providers call *your* `claude` / `codex` as a subprocess and use your ow
 On the **Jobs** page, pick sites and a per-site limit, then start a search. Each search is a batch (ID like `2026-11-07-A`) that reports how many jobs each site found and kept, and why any pages could not be read.
 
 - LinkedIn, Indeed, Built In, YC and similar: a web search finds public job pages, then the app reads them. By default this uses the web search built into the model assigned to the "job search" task (the Claude CLI gets the WebSearch tool for this task only). You can switch to [Tavily](https://tavily.com) or a self-hosted [SearXNG](https://docs.searxng.org) under Settings.
-- Greenhouse / Lever / Ashby: reads the companies' public job board JSON; no search source needed. Company boards are remembered from job pages you've read, or you can add them by hand.
+- Greenhouse / Lever / Ashby: a web search finds companies that use these systems, then the app reads each company's public job board JSON. Company boards are remembered from searches and from job pages you've read, or you can add them by hand. Without a search source, only the boards already known are read.
 - Public pages only. The app stops at sign-in, CAPTCHA or verification pages and records why; it never tries to get around them. Without signing in, LinkedIn and Indeed pages are often unreadable — that is expected.
 - Each job takes about 20–40 seconds to read, extract and score; jobs hit by a hard exclusion are not scored.
 
 ## Application tracking and stats
 
-Mark a job as saved → applied → interviewing → offer / rejected / ghosted (or dismiss it and restore it later). Every change is kept in a history; the "applied" time is the time you marked it — the app never invents submission times or applies for you.
+Mark a job as saved → referral requested → applied → interviewing → offer / rejected / ghosted (or dismiss it and restore it later). Every change is kept in a history; the "applied" time is the time you marked it — the app never invents submission times or applies for you.
 
 The stats page shows totals, a funnel, reply rate, source sites, sponsorship policy and visa history breakdowns, exclusion reasons, salary and score distributions, daily / weekly trends and a backlog. Filter by company, site, batch, location, status or date, and click any bar to see the jobs behind it.
+
+## Reach out (referrals)
+
+On a job page, **Find referrers** searches public LinkedIn profile results for people at that company (engineers, engineering managers, recruiters) using your search source. It only uses the search results — it never signs in to LinkedIn or opens profile pages. For each person you add, the app drafts a referral request from the JD and your resume: technical for engineers, general for everyone else, as a connection note (200 characters, or 300 with LinkedIn Premium), a longer InMail, and an email if you have their address. Anything your resume doesn't support is listed as "needs confirmation".
+
+You send every message yourself: **Copy and open LinkedIn** or **Open in email**, then click **I sent it**. That records the message and marks the job as *referral requested*. The **Reach out** inbox lists your contacts and conversations; paste their replies in and draft follow-ups there. Drafts are never saved.
+
+Email lookup is optional and uses your own [Hunter](https://hunter.io) API key (Settings → Search source). It only runs when you click, and never guesses addresses.
 
 ## H-1B / green card history data
 
@@ -103,7 +111,7 @@ uv run python ../evals/run_evals.py                                             
 uv run python ../evals/run_evals.py --suite llm --provider claude_cli --model sonnet  # uses your own model
 ```
 
-The `llm` suite measures extraction accuracy, hard-exclusion precision / recall, recommendation accuracy, cover letter citation rate, and whether application answers flag what needs your confirmation. Thresholds live in `evals/thresholds.json`; the run exits non-zero when a metric drops below them.
+The `llm` suite measures extraction accuracy, hard-exclusion precision / recall, recommendation accuracy, cover letter citation rate, whether application answers flag what needs your confirmation, and whether learned writing-style rules are free of facts from the sample drafts. Thresholds live in `evals/thresholds.json`; the run exits non-zero when a metric drops below them.
 
 ## License
 

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.db import Base
 from app.models import _created, _in, _updated, _uuid_pk
 
-APPLICATION_STATUS = ("saved", "applied", "interviewing", "offer", "rejected", "ghosted", "dismissed")
+APPLICATION_STATUS = ("saved", "referred", "applied", "interviewing", "offer", "rejected", "ghosted", "dismissed")
 
 
 class Application(Base):
@@ -53,6 +53,7 @@ class ApplicationEvent(Base):
     __table_args__ = (
         CheckConstraint(_in("to_status", APPLICATION_STATUS), name="ck_application_events_to_status"),
         Index("ix_application_events_at", "at"),
+        CheckConstraint("source IN ('user', 'email')", name="ck_application_events_source"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
@@ -62,9 +63,12 @@ class ApplicationEvent(Base):
     from_status: Mapped[str | None] = mapped_column(Text)
     to_status: Mapped[str] = mapped_column(Text, nullable=False)
     note: Mapped[str | None] = mapped_column(Text)
-    at: Mapped[datetime] = _created()
+    at: Mapped[datetime] = _created()  # 邮件造成的变更用收信时间
+    source: Mapped[str] = mapped_column(Text, nullable=False, server_default="user")  # user / email
+    email_message_id: Mapped[str | None] = mapped_column(Text, ForeignKey("email_messages.id", ondelete="SET NULL"))
 
     application: Mapped[Application] = relationship(back_populates="events")
+    email_message: Mapped["EmailMessage | None"] = relationship()  # noqa: F821
 
 
 __all__ = ["APPLICATION_STATUS", "Application", "ApplicationEvent"]

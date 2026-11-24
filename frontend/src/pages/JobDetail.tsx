@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import ApplicationPanel from "./ApplicationControl";
 import { JobMaterials, MaterialKind } from "./MaterialsPanel";
-import { ConfirmButton, Loading, Spinner } from "./ui";
+import OutreachPanel from "./OutreachPanel";
+import { Loading, Spinner } from "./ui";
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api, JobDetail as Job, SponsorStatus } from "../api";
 import {
@@ -29,6 +30,7 @@ export default function JobDetail() {
   const [params] = useSearchParams();
   const material = params.get("material") === "qa" ? "qa" : "cover_letter";
   const [job, setJob] = useState<Job | null>(null);
+  const [appVersion, setAppVersion] = useState(0); // 记录内推请求后重读投递状态
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -37,11 +39,11 @@ export default function JobDetail() {
     load();
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 从职位卡的「生成 Cover Letter / 申请问答」进来：读完后捲到申请材料
-  const wantMaterials = location.hash === "#materials";
+  // 从职位卡的「生成 Cover Letter / 申请问答 / Reach out」进来：读完后捲到对应区块
+  const section = location.hash.slice(1);
   useEffect(() => {
-    if (job && wantMaterials) document.getElementById("materials")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [job?.id, wantMaterials, material]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (job && section) document.getElementById(section)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [job?.id, section, material]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!job) return error ? <p className="error">{error}</p> : <Loading />;
 
@@ -81,10 +83,10 @@ export default function JobDetail() {
             </div>
           </div>
           <div className="row">
-            <button className="primary" onClick={() => nav(`/materials?job=${job.id}&kind=cover_letter`)}>
+            <button className="primary" onClick={() => nav("?material=cover_letter#materials", { replace: true })}>
               {t("生成 Cover Letter")}
             </button>
-            <button className="primary" onClick={() => nav(`/materials?job=${job.id}&kind=qa`)}>
+            <button className="primary" onClick={() => nav("?material=qa#materials", { replace: true })}>
               {t("申请问答")}
             </button>
           </div>
@@ -126,16 +128,18 @@ export default function JobDetail() {
               {t("来源：{site} ↗", { site: s.site_id })}
             </a>
           ))}
-          <ConfirmButton message={t("删除「{title}」？会移到职位页的「已删除」，可以还原。", { title: job.title })} onConfirm={remove}>
+          <button type="button" onClick={remove}>
             {t("删除职位")}
-          </ConfirmButton>
+          </button>
         </div>
         <p className="muted">{t("投递请自己到申请页面完成；本工具不会代你投递。")}</p>
       </div>
 
-      <ApplicationPanel jobId={job.id} />
+      <ApplicationPanel key={appVersion} jobId={job.id} />
 
       <JobMaterials jobId={job.id} initialKind={material as MaterialKind} hasJd={!!job.jd_text} />
+
+      <OutreachPanel job={job} onSent={() => setAppVersion((v) => v + 1)} />
 
       {(job.exclusion.reasons.length > 0 || job.exclusion.flags.length > 0) && (
         <div className="card">

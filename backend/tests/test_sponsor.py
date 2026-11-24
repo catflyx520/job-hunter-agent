@@ -153,3 +153,38 @@ def test_no_match_mentions_brand_vs_legal_entity(raw_dir, tmp_path, db_session):
     st = refresh_company(db, c)
     assert st.status == "no_match_in_scope"
     assert "法律实体" in st.summary["reason"]
+
+
+def test_two_sessions_refreshing_the_same_new_company_do_not_collide(raw_dir, tmp_path, db_session):
+    """搜索会同时处理同一家新公司的两个职位：两边都要写比对记录与状态。后到的要等前面写完再看，不能撞唯一限制。"""
+    import threading
+
+    from app.core.db import get_sessionmaker
+
+    db = db_session
+    company = Company(display_name="Example Robotics", normalized_name="example robotics")
+    db.add(company)
+    files = _files(raw_dir)
+    employers, rows = aggregate(files, log=lambda *_: None)
+    import_summary(db, write_summary(employers, files, rows, tmp_path / "summary.jsonl.gz"), log=lambda *_: None)
+    db.commit()
+    cid = company.id
+
+    refresh_company(db, db.get(Company, cid))  # 第一个：写了，还没 commit
+    errors: list[Exception] = []
+
+    def second():
+        try:
+            with get_sessionmaker()() as other:
+                refresh_company(other, other.get(Company, cid))
+                other.commit()
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    t = threading.Thread(target=second)
+    t.start()
+    t.join(0.5)  # 第二个这时候在等第一个
+    db.commit()
+    t.join(10)
+    assert not t.is_alive() and errors == []
+    assert db.query(EmployerAlias).filter_by(company_id=cid).count() == 1

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import EmailSyncPanel from "./EmailSyncPanel";
 import { api, JobSummary } from "../api";
 import { StatusSelect } from "./ApplicationControl";
 import { APP_STATUS, RECOMMENDATION, SPONSOR_STATUS, WORK_MODE, show } from "./labels";
@@ -30,7 +31,7 @@ interface Options {
   runs: string[];
 }
 
-type FilterKey = "company" | "site" | "run" | "location_tier" | "work_mode" | "status" | "date_from" | "date_to";
+type FilterKey = "company" | "site" | "run" | "location_tier" | "work_mode" | "status" | "date_from" | "date_to" | "q";
 type Filters = Partial<Record<FilterKey, string>>;
 type Range = "7" | "30" | "all" | "custom";
 
@@ -86,7 +87,21 @@ export default function Stats() {
   const [dimKey, setDimKey] = useState("application_status");
   const [drill, setDrill] = useState<Drill | null>(null);
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
   const pop = usePopover<"more">();
+
+  // 停止输入 300ms 后才查，避免每个字都发请求、旧结果盖掉新结果
+  useEffect(() => {
+    const id = setTimeout(() => {
+      const v = query.trim();
+      setFilters((f) => {
+        if ((f.q ?? "") === v) return f;
+        setDrill(null);
+        return { ...f, q: v || undefined };
+      });
+    }, 300);
+    return () => clearTimeout(id);
+  }, [query]);
 
   useEffect(() => {
     api.get<Options>("/api/stats/options").then(setOpts).catch(() => undefined);
@@ -119,6 +134,7 @@ export default function Stats() {
   const clear = () => {
     setDrill(null);
     setRange("all");
+    setQuery("");
     setFilters({});
   };
 
@@ -147,6 +163,7 @@ export default function Stats() {
   return (
     <div className="stack">
       {error && <p className="error">{error}</p>}
+      <EmailSyncPanel onChanged={() => setFilters((f) => ({ ...f }))} />
 
       <section className="row" aria-label={t("统计筛选")} ref={pop.ref} style={{ position: "relative", zIndex: 5 }}>
         <Seg<Range>
@@ -159,6 +176,7 @@ export default function Stats() {
             { value: "all", label: t("全部") },
           ]}
         />
+        <input type="search" aria-label={t("搜索职位")} placeholder={t("搜索职称、公司或地点")} value={query} onChange={(e) => setQuery(e.target.value)} />
         <select value={filters.site ?? ""} onChange={(e) => setF("site", e.target.value)} aria-label={t("来源网站")}>
           <option value="">{t("所有来源")}</option>
           {opts?.sites.map((s) => (

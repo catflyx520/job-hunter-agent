@@ -16,7 +16,16 @@ from app.jobs.exclusion import FLAG_LABELS, REASON_LABELS, check_exclusions
 from app.jobs.service import IngestError, ingest, load_preferences, match_job
 from app.llm.base import LLMError
 from app.llm.registry import provider_for_task
-from app.models import Application, ApplicationEvent, Company, CompanySponsorStatus, EmployerAlias, Job, JobMatch
+from app.models import (
+    Application,
+    ApplicationEvent,
+    Company,
+    CompanySponsorStatus,
+    EmployerAlias,
+    Job,
+    JobMatch,
+    JobSource,
+)
 from app.rag.retrieve import evidence_texts
 from app.schemas.job import (
     AliasDecision,
@@ -66,6 +75,7 @@ def _summary(db: Session, job: Job) -> dict:
         "sponsor_status": st.status if st else None,
         "sponsor_h1b": bool(st.h1b_years) if st else None,
         "sponsor_perm": bool(st.perm_years) if st else None,
+        "found_on": sorted({s.site_id for s in job.sources}),
         **_application(db, job.id),
     }
 
@@ -115,8 +125,15 @@ def ingest_job(body: IngestIn, db: Session = Depends(get_db)):
 
 
 @router.get("/jobs", response_model=list[JobSummary])
-def list_jobs(db: Session = Depends(get_db)):
-    jobs = db.scalars(select(Job).order_by(Job.location_tier.asc().nulls_last(), Job.created_at.desc())).all()
+def list_jobs(pasted: bool = False, db: Session = Depends(get_db)):
+    if pasted:
+        # 贴上的职位：不属于任何搜索批次；旧资料导入的没有核实来源，也不算
+        from_run = select(JobSource.id).where(JobSource.job_id == Job.id, JobSource.first_seen_run_id.is_not(None))
+        query = select(Job).where(Job.verification_source.is_not(None), ~from_run.exists())
+        query = query.order_by(Job.created_at.desc())
+    else:
+        query = select(Job).order_by(Job.location_tier.asc().nulls_last(), Job.created_at.desc())
+    jobs = db.scalars(query).all()
     return [JobSummary(**_summary(db, j)) for j in jobs]
 
 

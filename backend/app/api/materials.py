@@ -19,7 +19,7 @@ from app.core.i18n import tr
 from app.llm.base import LLMError
 from app.materials.images import MAX_IMAGE_BYTES, MAX_IMAGES, ImageError, validate_images
 from app.materials.service import MaterialError, MaterialRequest, create_material, similar_answers
-from app.models import Material, MaterialImage
+from app.models import Company, Job, Material, MaterialImage
 from app.rag.retrieve import evidence_texts
 
 router = APIRouter(prefix="/api", tags=["materials"])
@@ -46,6 +46,9 @@ class MaterialOut(BaseModel):
     jd_source: str
     resume_id: uuid.UUID | None  # 履历版本删除后为空
     facts_used: list[str] | None
+    style_rules: list[str] | None
+    job_title: str | None = None
+    company: str | None = None
     status: str
     output_text: str | None
     edited_text: str | None
@@ -64,8 +67,15 @@ class MaterialEdit(BaseModel):
     edited_text: str | None = Field(None, max_length=50_000)
 
 
-def _out(db: Session, m: Material) -> MaterialOut:
+def _out(db: Session, m: Material, job: tuple[str | None, str | None] | None = None) -> MaterialOut:
     out = MaterialOut.model_validate(m)
+    if job is None and m.job_id:
+        job = db.execute(
+            select(Job.title, Company.display_name)
+            .join(Company, Company.id == Job.company_id)
+            .where(Job.id == m.job_id)
+        ).first()
+    out.job_title, out.company = job or (None, None)
     out.evidence = evidence_texts(db, [i for c in (m.citations or []) for i in c.get("chunk_ids", [])], m.resume_id)
     return out
 
@@ -109,12 +119,18 @@ def create(
 
 @router.get("/materials", response_model=list[MaterialOut])
 def list_materials(job_id: uuid.UUID | None = None, kind: str | None = None, db: Session = Depends(get_db)):
-    q = select(Material).order_by(Material.created_at.desc()).limit(200)
+    q = (
+        select(Material, Job.title, Company.display_name)
+        .outerjoin(Job, Job.id == Material.job_id)
+        .outerjoin(Company, Company.id == Job.company_id)
+        .order_by(Material.created_at.desc())
+        .limit(200)
+    )
     if job_id:
         q = q.where(Material.job_id == job_id)
     if kind:
         q = q.where(Material.kind == kind)
-    return [_out(db, m) for m in db.scalars(q)]
+    return [_out(db, m, (title, company)) for m, title, company in db.execute(q)]
 
 
 @router.get("/materials/similar", response_model=list[MaterialOut])
@@ -130,7 +146,10 @@ def get_material(material_id: uuid.UUID, db: Session = Depends(get_db)):
 @router.patch("/materials/{material_id}", response_model=MaterialOut)
 def edit_material(material_id: uuid.UUID, body: MaterialEdit, db: Session = Depends(get_db)):
     m = _get(db, material_id)
-    m.edited_text = body.edited_text if body.edited_text and body.edited_text != m.output_text else None
+    edited = body.edited_text if body.edited_text and body.edited_text != m.output_text else None
+    if edited != m.edited_text:
+        m.style_learned_at = None  # 内容变了，下次要重新整理写法
+    m.edited_text = edited
     db.flush()
     return _out(db, m)
 

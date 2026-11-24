@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import re
-from urllib.parse import urlsplit
+from datetime import UTC, datetime, timedelta
+from urllib.parse import parse_qs, urlsplit
 
 # 法律实体后缀（比对时去掉）
 _SUFFIXES = {
@@ -72,6 +73,44 @@ def site_for_url(url: str) -> str:
         if host == domain or host.endswith("." + domain):
             return site
     return "manual"
+
+
+def job_page_url(url: str) -> str:
+    """LinkedIn 的搜索结果 / 推荐列表网址（…/jobs/search-results/?currentJobId=123）换成公开职位页 /jobs/view/123；
+    未登入时列表页没有 JD。其他网址原样回传。"""
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    if site_for_url(url) != "linkedin" or not parts.path.startswith("/jobs/") or parts.path.startswith("/jobs/view/"):
+        return url
+    job_id = parse_qs(parts.query).get("currentJobId", [""])[0]
+    return f"https://{host}/jobs/view/{job_id}" if job_id.isdigit() else url
+
+
+_UNIT_DAYS = {"minute": 0, "hour": 0, "day": 1, "week": 7, "month": 30, "year": 365}
+
+
+def parse_posted(text: str | None, now: datetime) -> datetime | None:
+    """'3 days ago'、'Reposted 2 Months Ago'、'Posted Oct 25, 2026'、'2026-10-25' → 日期；看不懂回传 None。"""
+    s = (text or "").strip().lower()
+    if not s:
+        return None
+    if re.search(r"\b(just now|today|moments? ago)\b", s):
+        return now
+    if "yesterday" in s:
+        return now - timedelta(days=1)
+    m = re.search(r"(\d+)\+?\s*(minute|hour|day|week|month|year)s?\s+ago", s)
+    if m:
+        return now - timedelta(days=int(m[1]) * _UNIT_DAYS[m[2]])
+    m = re.search(r"\d{4}-\d{2}-\d{2}", s)
+    if m:
+        return datetime.strptime(m[0], "%Y-%m-%d").replace(tzinfo=UTC)
+    m = re.search(r"([a-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s+(\d{4})", s)
+    if m:
+        try:
+            return datetime.strptime(f"{m[1]} {m[2]} {m[3]}", "%b %d %Y").replace(tzinfo=UTC)
+        except ValueError:
+            return None
+    return None
 
 
 def location_tier(location_text: str, work_mode: str, preferred: list[str]) -> int | None:

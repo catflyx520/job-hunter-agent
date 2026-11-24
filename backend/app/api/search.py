@@ -16,7 +16,7 @@ from app.core.security import encrypt_secret, last4
 from app.jobs.exclusion import REASON_LABELS, check_exclusions
 from app.jobs.service import IngestError, load_preferences, upsert_company
 from app.llm.base import LLMError
-from app.models import Company, Integration, Job, JobSite, JobSource, SearchRun, SearchRunJob, SearchRunSite
+from app.models import Company, Integration, Job, JobSite, SearchRun, SearchRunJob, SearchRunSite
 from app.schemas.job import (
     AtsBoardIn,
     AtsBoardOut,
@@ -31,8 +31,12 @@ from app.schemas.job import (
     SearchSourceOut,
 )
 from app.search import progress, runner
+from app.search.browser import BROWSER_SITES, browser_enabled
 from app.search.sites import ats_from_url
-from app.search.web import active_integration, get_searcher, searcher_from_integration
+from app.search.web import SEARCH_KINDS, active_integration, get_searcher, searcher_from_integration
+
+# 不是搜索网站：贴网址 / JD、邮件同步建的职位
+NOT_SEARCH_SITES = ("manual", "email")
 
 router = APIRouter(prefix="/api", tags=["search"])
 
@@ -53,14 +57,14 @@ def _site_out(db: Session, site: JobSite) -> JobSiteOut:
 
 @router.get("/job-sites", response_model=list[JobSiteOut])
 def list_sites(db: Session = Depends(get_db)):
-    sites = db.scalars(select(JobSite).where(JobSite.id != "manual").order_by(JobSite.sort_order)).all()
+    sites = db.scalars(select(JobSite).where(JobSite.id.notin_(NOT_SEARCH_SITES)).order_by(JobSite.sort_order)).all()
     return [_site_out(db, s) for s in sites]
 
 
 @router.patch("/job-sites/{site_id}", response_model=JobSiteOut)
 def update_site(site_id: str, body: JobSiteUpdate, db: Session = Depends(get_db)):
     site = db.get(JobSite, site_id)
-    if site is None or site.id == "manual":
+    if site is None or site.id in NOT_SEARCH_SITES:
         raise HTTPException(404, tr("找不到这个网站"))
     if body.enabled is not None:
         if body.enabled and site.access_method == "paste_only":
@@ -68,6 +72,12 @@ def update_site(site_id: str, body: JobSiteUpdate, db: Session = Depends(get_db)
         site.enabled = body.enabled
     if body.max_results is not None:
         site.max_results = body.max_results
+    if body.access_method is not None and body.access_method != site.access_method:
+        if site.id not in BROWSER_SITES or site.access_method not in ("web_search", "browser"):
+            raise HTTPException(422, tr("{name} 不能改取得方式。", name=site.name))
+        if body.access_method == "browser" and not browser_enabled(db):
+            raise HTTPException(422, tr("请先在设定页开启登录浏览器。"))
+        site.access_method = body.access_method
     db.flush()
     return _site_out(db, site)
 
@@ -94,7 +104,7 @@ def search_source(db: Session = Depends(get_db)):
 @router.put("/search/integration", response_model=SearchSourceOut)
 def set_integration(body: IntegrationIn, db: Session = Depends(get_db)):
     """一次只启用一个外部搜索服务；kind=none 代表改回模型自带搜索。"""
-    rows = db.scalars(select(Integration)).all()
+    rows = db.scalars(select(Integration).where(Integration.kind.in_(SEARCH_KINDS))).all()
     for r in rows:
         r.enabled = False
     if body.kind != "none":
@@ -251,11 +261,6 @@ def get_run(run_id: str, db: Session = Depends(get_db)):
     rows = db.execute(
         select(SearchRunJob, Job).join(Job, Job.id == SearchRunJob.job_id).where(SearchRunJob.run_id == run.id)
     ).all()
-    found_on: dict[uuid.UUID, list[str]] = {}
-    for job_id, site_id in db.execute(
-        select(JobSource.job_id, JobSource.site_id).where(JobSource.first_seen_run_id == run.id)
-    ):
-        found_on.setdefault(job_id, []).append(site_id)
     prefs, _ = load_preferences(db)
     jobs = []
     for rj, job in rows:
@@ -269,7 +274,6 @@ def get_run(run_id: str, db: Session = Depends(get_db)):
                 **_summary(db, job),
                 outcome=outcome,
                 exclusion_reasons=[{"code": c, "label": REASON_LABELS.get(c, c)} for c in codes],
-                found_on=sorted(set(found_on.get(job.id, []))),
             )
         )
     rank = {"kept": 0, "excluded": 1, "duplicate": 2}

@@ -1,7 +1,10 @@
 import { ClipboardEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { api, DEMO, Material } from "../api";
+import { Link } from "react-router-dom";
+import { api, DEMO, LearnResult, Material } from "../api";
 import { locale, t } from "../i18n";
-import { Seg, Spinner } from "./ui";
+import { KIND_LABEL } from "./labels";
+import { LearnSummary } from "./StylePanel";
+import { ConfirmButton, Seg, Spinner } from "./ui";
 
 export type MaterialKind = "cover_letter" | "qa";
 
@@ -9,11 +12,12 @@ const MAX_IMAGES = 6;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_TOTAL = 12 * 1024 * 1024;
 const OK_TYPES = ["image/png", "image/jpeg", "image/webp"];
-export const KIND_LABEL: Record<MaterialKind, string> = { cover_letter: "Cover letter", qa: t("申请问答") };
+export { KIND_LABEL } from "./labels";
 const JD_SOURCE: Record<string, string> = { stored: t("已存的完整 JD"), url: t("读取网址"), pasted: t("贴上的 JD"), none: t("没有 JD") };
 
 /** 职位详情页的「申请材料」：为这个职位写 cover letter 或回答申请问题，下面列出这个职位的草稿。 */
-export function JobMaterials({ jobId, initialKind, hasJd }: { jobId: string; initialKind: MaterialKind; hasJd: boolean }) {
+/** hideKinds：外层已经有 tab 切换类型时（职位页的「材料与内推」窗口），不再显示这里的标题与切换。 */
+export function JobMaterials({ jobId, initialKind, hasJd, hideKinds = false }: { jobId: string; initialKind: MaterialKind; hasJd: boolean; hideKinds?: boolean }) {
   const [kind, setKind] = useState<MaterialKind>(initialKind);
   const [drafts, setDrafts] = useState<Material[] | null>(null);
   const [current, setCurrent] = useState<Material | null>(null);
@@ -22,12 +26,15 @@ export function JobMaterials({ jobId, initialKind, hasJd }: { jobId: string; ini
   useEffect(() => {
     load().catch(() => setDrafts([]));
   }, [jobId]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => setKind(initialKind), [initialKind]);
+  useEffect(() => {
+    setKind(initialKind);
+    setCurrent(null);
+  }, [initialKind]);
 
   const mine = (drafts ?? []).filter((d) => d.kind === kind);
   return (
     <section className="card" id="materials" aria-label={t("申请材料")}>
-      <div className="row between">
+      {!hideKinds && <div className="row between">
         <h3 style={{ margin: 0 }}>{t("申请材料")}</h3>
         <Seg<MaterialKind>
           label={t("材料类型")}
@@ -41,7 +48,7 @@ export function JobMaterials({ jobId, initialKind, hasJd }: { jobId: string; ini
             { value: "qa", label: KIND_LABEL.qa },
           ]}
         />
-      </div>
+      </div>}
       <Generator
         key={kind}
         jobId={jobId}
@@ -52,7 +59,7 @@ export function JobMaterials({ jobId, initialKind, hasJd }: { jobId: string; ini
           load();
         }}
       />
-      {current && <DraftView key={current.id} m={current} onSaved={(m) => (setCurrent(m), load())} />}
+      {current && <DraftView key={current.id} m={current} onSaved={(m) => (setCurrent(m), load())} onDeleted={() => (setCurrent(null), load())} />}
       <h4 style={{ marginBottom: 4 }}>{t("这个职位的{kind}草稿", { kind: KIND_LABEL[kind] })}</h4>
       {drafts === null ? (
         <p className="muted loading-line">
@@ -68,18 +75,11 @@ export function JobMaterials({ jobId, initialKind, hasJd }: { jobId: string; ini
   );
 }
 
-/** 草稿清单（职位详情页与材料历史共用）。 */
-export function DraftList({
-  items,
-  activeId,
-  onPick,
-  jobTitle,
-}: {
-  items: Material[];
-  activeId?: string;
-  onPick: (m: Material) => void;
-  jobTitle?: (m: Material) => string | undefined;
-}) {
+/** 职位 — 公司；两者都没有就写没有关联职位。 */
+export const jobLabel = (m: Material) => [m.job_title, m.company].filter(Boolean).join(" — ") || t("（没有关联职位）");
+
+/** 草稿清单（职位详情页与材料历史共用）。showJob：第一行写职位与公司，问题放第二行。 */
+export function DraftList({ items, activeId, onPick, showJob }: { items: Material[]; activeId?: string; onPick: (m: Material) => void; showJob?: boolean }) {
   return (
     <table>
       <tbody>
@@ -90,10 +90,11 @@ export function DraftList({
             </td>
             <td>
               <button type="button" className="link" style={{ padding: 0, textAlign: "left" }} onClick={() => onPick(h)}>
-                {h.question?.slice(0, 80) || jobTitle?.(h) || t("（无标题）")}
+                {showJob ? jobLabel(h) : h.question?.slice(0, 80) || t("（无标题）")}
               </button>
               {h.edited_text && <span className="muted"> {t("（已修改）")}</span>}
               {h.status === "failed" && <span className="badge fail"> {t("失败")}</span>}
+              {showJob && h.question && <div className="muted small">{h.question.slice(0, 80)}</div>}
             </td>
             <td className="muted" style={{ width: 180 }}>
               {new Date(h.created_at).toLocaleString(locale)}
@@ -219,7 +220,7 @@ function Generator({ jobId, kind, hasJd, onDone }: { jobId: string; kind: Materi
             <div className="row" style={{ marginTop: 8 }}>
               {images.map((f, i) => (
                 <div key={i} style={{ position: "relative" }}>
-                  <img src={previews[i]} alt={f.name} style={{ height: 90, border: "1px solid var(--border)" }} />
+                  <img src={previews[i]} alt={f.name} style={{ height: 90, border: "1px solid var(--line)" }} />
                   <button
                     type="button"
                     aria-label={t("移除")}
@@ -264,10 +265,32 @@ function Generator({ jobId, kind, hasJd, onDone }: { jobId: string; kind: Materi
 }
 
 /** 一份草稿：需要确认的事项、可编辑的内容、复制 / 下载、证据对照。 */
-export function DraftView({ m, onSaved, header }: { m: Material; onSaved: (m: Material) => void; header?: ReactNode }) {
+export function DraftView({ m, onSaved, onDeleted, onLearned, header }: { m: Material; onSaved: (m: Material) => void; onDeleted: () => void; onLearned?: () => void; header?: ReactNode }) {
   const [text, setText] = useState(m.edited_text ?? m.output_text ?? "");
   const [msg, setMsg] = useState("");
   const dirty = text !== (m.edited_text ?? m.output_text ?? "");
+  // 保存后向后端整理写法：null 没有；"busy" 整理中；LearnResult 成功；{error} 失败
+  const [learn, setLearn] = useState<null | "busy" | LearnResult | { error: string }>(null);
+  const [saveError, setSaveError] = useState("");
+  const saveSeq = useRef(0); // 只显示最后一次保存的整理结果
+  const [delError, setDelError] = useState("");
+
+  const deleteButton = !DEMO && (
+    <ConfirmButton
+      className="link danger"
+      message={t("删除这份草稿？")}
+      onConfirm={async () => {
+        try {
+          await api.del(`/api/materials/${m.id}`);
+          onDeleted();
+        } catch (e) {
+          setDelError((e as Error).message);
+        }
+      }}
+    >
+      {t("删除")}
+    </ConfirmButton>
+  );
 
   if (m.status === "failed") {
     return (
@@ -275,11 +298,35 @@ export function DraftView({ m, onSaved, header }: { m: Material; onSaved: (m: Ma
         {header}
         <h4>{t("生成失败")}</h4>
         <p className="error">{m.error}</p>
+        {deleteButton}
+        {delError && <p className="error">{delError}</p>}
       </div>
     );
   }
 
-  const save = async () => onSaved(await api.patch<Material>(`/api/materials/${m.id}`, { edited_text: text }));
+  const save = async () => {
+    const seq = ++saveSeq.current;
+    setLearn(null);
+    setSaveError("");
+    let saved: Material;
+    try {
+      saved = await api.patch<Material>(`/api/materials/${m.id}`, { edited_text: text });
+    } catch (e) {
+      setSaveError((e as Error).message); // 编辑框里的文字不动，可以再按一次保存
+      return;
+    }
+    onSaved(saved);
+    if (!saved.edited_text) return; // 改回模型原稿：没有可学的修改
+    setLearn("busy");
+    try {
+      const result = await api.post<LearnResult>("/api/style-rules/learn", { kind: saved.kind });
+      if (seq !== saveSeq.current) return;
+      setLearn(result);
+      onLearned?.();
+    } catch (e) {
+      if (seq === saveSeq.current) setLearn({ error: (e as Error).message });
+    }
+  };
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(text);
@@ -336,8 +383,45 @@ export function DraftView({ m, onSaved, header }: { m: Material; onSaved: (m: Ma
             {t("还原成模型原稿")}
           </button>
         )}
+        {deleteButton}
       </div>
+      <div role="status">
+        {saveError && <p className="error">{t("保存失败：{error}", { error: saveError })}</p>}
+        {learn === "busy" && (
+          <p className="muted small loading-line">
+            <Spinner />
+            {t("已保存。正在从你的修改整理写法…")}
+          </p>
+        )}
+        {learn && learn !== "busy" && "error" in learn && (
+          <>
+            <p className="error">{t("整理写法失败：{error}", { error: learn.error })}</p>
+            <p className="muted small">{t("修改已经保存，可以到材料历史按「重新整理」再试。")}</p>
+          </>
+        )}
+        {learn && learn !== "busy" && !("error" in learn) && (
+          <>
+            <LearnSummary result={learn} />
+            {!onLearned && (
+              <Link to="/materials" className="small">
+                {t("看全部写法 →")}
+              </Link>
+            )}
+          </>
+        )}
+      </div>
+      {delError && <p className="error">{delError}</p>}
       {msg && <p className="notice">{msg}</p>}
+      {m.style_rules && m.style_rules.length > 0 && (
+        <details style={{ marginTop: 8 }}>
+          <summary className="muted">{t("这份用了你的 {n} 条写法", { n: m.style_rules.length })}</summary>
+          <ul>
+            {m.style_rules.map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
+          </ul>
+        </details>
+      )}
       {m.citations && m.citations.length > 0 && (
         <details style={{ marginTop: 8 }}>
           <summary className="muted">{t("证据对照（{ok} / {n} 句有来源）", { ok: m.citations.filter((c) => c.supported).length, n: m.citations.length })}</summary>

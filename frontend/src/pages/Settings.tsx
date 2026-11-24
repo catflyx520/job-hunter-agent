@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { api, Capabilities, CliStatus, Provider, ProviderKind, SearchSource, TaskRoute } from "../api";
+import { Button } from "@/components/ui/button";
+import { api, BrowserStatus, Capabilities, CliStatus, DEMO, GmailStatus, HunterSettings, Provider, ProviderKind, SearchSource, TaskRoute } from "../api";
 import { CLI_LABEL, CLI_STATE, CliLoginState, LoginSteps, useCliLogin } from "./CliLogin";
 import { ConfirmButton, Seg, Spinner } from "./ui";
 import { t } from "../i18n";
@@ -22,7 +23,8 @@ const CAP_LABELS: Record<keyof Capabilities, string> = {
 const cliOf = (kind: ProviderKind): "claude" | "codex" | null => (kind === "claude_cli" ? "claude" : kind === "codex_cli" ? "codex" : null);
 
 export default function Settings() {
-  const [view, setView] = useState<"conn" | "routes" | "search">("conn");
+  // Gmail 授权完成后会回到 /settings?view=email
+  const [view, setView] = useState<"conn" | "routes" | "search" | "email">(() => (new URLSearchParams(window.location.search).get("view") === "email" ? "email" : "conn"));
   const [providers, setProviders] = useState<Provider[]>([]);
   const [routes, setRoutes] = useState<TaskRoute[]>([]);
   const [adding, setAdding] = useState(false);
@@ -73,6 +75,7 @@ export default function Settings() {
             { value: "conn", label: t("连接") },
             { value: "routes", label: t("任务模型") },
             { value: "search", label: t("搜索来源") },
+            { value: "email", label: t("邮箱") },
           ]}
         />
         {view === "conn" && (
@@ -137,6 +140,9 @@ export default function Settings() {
       )}
 
       {view === "search" && <SearchSourceCard key={routes.map((r) => r.provider_id).join()} />}
+      {view === "search" && !DEMO && <BrowserCard />}
+      {view === "search" && <HunterCard />}
+      {view === "email" && <GmailCard />}
     </div>
   );
 }
@@ -354,6 +360,139 @@ function SearchSourceCard() {
   );
 }
 
+// 登录浏览器：用自己的登录身份搜索 LinkedIn。预设关闭；程序只读职位，登录与验证都由用户自己在窗口里做
+function BrowserCard() {
+  const [st, setSt] = useState<BrowserStatus | null>(null);
+  const [error, setError] = useState("");
+  const load = () => api.get<BrowserStatus>("/api/browser").then(setSt).catch((e) => setError(e.message));
+
+  useEffect(() => {
+    load();
+  }, []);
+  // 开启后登录状态会随着你在窗口里的操作改变：每 5 秒重读一次
+  useEffect(() => {
+    if (!st?.enabled) return;
+    const timer = setInterval(load, 5000);
+    return () => clearInterval(timer);
+  }, [st?.enabled]);
+
+  const call = async (fn: () => Promise<unknown>) => {
+    setError("");
+    try {
+      await fn();
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  if (!st) return null;
+  const risk = t("LinkedIn 不允许用程序操作账号，可能限制或封号。登录状态只存在这台电脑，不会上传。");
+  const login = st.logged_in.linkedin;
+  return (
+    <section className="card stack" aria-label={t("登录浏览器")}>
+      <b>{t("登录浏览器")}</b>
+      <div className="muted">{t("用你自己的登录身份搜索 LinkedIn，能找到最新的职位。程序只打开搜索页和职位页、读文字，不投递、不发消息。")}</div>
+      <p className="notice">{risk}</p>
+      {!st.available && <p className="error">{st.reason}</p>}
+      {st.enabled ? (
+        <>
+          <div className="row">
+            <span>
+              LinkedIn：<b>{login === true ? t("已登录") : login === false ? t("需要登录") : t("还没检查")}</b>
+            </span>
+            <Button type="button" size="sm" onClick={() => call(() => api.post("/api/browser/open", { site: "linkedin" }))}>
+              {t("打开浏览器窗口登录")}
+            </Button>
+            <ConfirmButton message={t("会关掉窗口并删除这台电脑上的登录资料，下次要重新登录。")} confirmLabel={t("确定清除")} onConfirm={() => call(() => api.del("/api/browser/profile"))}>
+              {t("清除登录状态")}
+            </ConfirmButton>
+            <Button type="button" variant="outline" size="sm" onClick={() => call(() => api.put("/api/browser", { enabled: false }))}>
+              {t("关闭登录浏览器")}
+            </Button>
+          </div>
+          <div className="muted small">{t("接着到职位页的“来源”里，把 LinkedIn 的取得方式改成“登录浏览器”。遇到登录页或验证页时，搜索会等你在窗口里处理。")}</div>
+        </>
+      ) : (
+        <div>
+          <ConfirmButton message={risk} confirmLabel={t("我了解风险，开启")} disabled={!st.available} onConfirm={() => call(() => api.put("/api/browser", { enabled: true }))}>
+            {t("开启登录浏览器")}
+          </ConfirmButton>
+        </div>
+      )}
+      {error && <p className="error">{error}</p>}
+    </section>
+  );
+}
+
+// 邮箱查找（Reach out 找不到 LinkedIn 时用）：用户自己的 Hunter key，只在按按钮时查
+function HunterCard() {
+  const [cfg, setCfg] = useState<HunterSettings | null>(null);
+  const [key, setKey] = useState("");
+  const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    api.get<HunterSettings>("/api/outreach/hunter").then(setCfg).catch((e) => setError(e.message));
+  }, []);
+
+  const save = async (enabled: boolean) => {
+    setError("");
+    setMsg("");
+    try {
+      setCfg(await api.put<HunterSettings>("/api/outreach/hunter", { enabled, api_key: key || null }));
+      setKey("");
+      setMsg(t("已保存。"));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  const test = async () => {
+    setError("");
+    setMsg(t("测试中…"));
+    try {
+      await api.post("/api/outreach/hunter/test");
+      setMsg(t("连线正常。"));
+    } catch (e) {
+      setMsg("");
+      setError((e as Error).message);
+    }
+  };
+
+  return (
+    <section className="card stack" aria-label={t("邮箱查找（Hunter）")}>
+      <h3 style={{ margin: 0 }}>{t("邮箱查找（Hunter）")}</h3>
+      <div className="muted">{t("内推找人时如果找不到对方的 LinkedIn，可以用 Hunter 查公司邮箱。Hunter 免费额度很少，只在你按按钮时才查。")}</div>
+      <input
+        type="password"
+        aria-label="Hunter API key"
+        autoComplete="off"
+        value={key}
+        onChange={(e) => setKey(e.target.value)}
+        placeholder={cfg?.key_last4 ? t("已保存，末四码 {k}；留空则沿用", { k: cfg.key_last4 }) : "Hunter API key"}
+      />
+      <div className="row">
+        <button type="button" className="primary" onClick={() => save(true)}>
+          {cfg?.enabled ? t("保存") : t("保存并启用")}
+        </button>
+        {cfg?.enabled && (
+          <>
+            <button type="button" onClick={test}>
+              {t("测试连线")}
+            </button>
+            <button type="button" onClick={() => save(false)}>
+              {t("停用")}
+            </button>
+          </>
+        )}
+        {cfg && <span className="muted">{cfg.enabled ? t("目前：已启用") : t("目前：未启用")}</span>}
+      </div>
+      {msg && <p className="notice">{msg}</p>}
+      {error && <p className="error">{error}</p>}
+    </section>
+  );
+}
+
 const EMBEDDING_KINDS: ProviderKind[] = ["openai", "openai_compatible", "ollama"];
 // 数据库的向量栏位是 1536 维，这个模型刚好相符；聊天模型不能算 embedding
 const defaultModel = (task: string, p: Provider) => (task === "embedding" && p.kind === "openai" ? "text-embedding-3-small" : p.default_model);
@@ -485,6 +624,150 @@ function AddProvider({ cli, onAdded }: { cli: CliLoginState; onAdded: () => void
         </button>
         {meta.needsKey && <span className="muted small">{t("key 只加密保存在本机数据库；保存后只显示末四码。")}</span>}
       </div>
+    </section>
+  );
+}
+
+const CLI_NOTE = t("只放行搜索与读信两个工具，发信、删信、改标签的工具一律禁用；app 不保存任何 token。信件内容会经过 Claude（Anthropic）。")
+
+// 邮件同步：推荐经由本机 Claude CLI 的 Gmail 连接器；备用是用户自己的 Google Cloud Desktop OAuth client（只要 gmail.readonly）
+function GmailCard() {
+  const [cfg, setCfg] = useState<GmailStatus | null>(null);
+  const [clientId, setClientId] = useState("");
+  const [secret, setSecret] = useState("");
+  const [msg, setMsg] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const viaCli = cfg?.mode === "claude_cli";
+
+  const load = () => api.get<GmailStatus>("/api/email/gmail").then(setCfg).catch((e) => setError(e.message));
+  useEffect(() => {
+    load();
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("email") === "connected") setMsg(t("已连接 Gmail（只读）。"));
+    if (q.get("email_error")) setError(q.get("email_error") ?? "");
+    if (q.get("email") || q.get("email_error")) window.history.replaceState(null, "", "/settings?view=email");
+  }, []);
+
+  const connect = async () => {
+    setError("");
+    try {
+      const { url } = await api.post<{ url: string }>("/api/email/gmail/auth-url", {
+        client_id: clientId.trim() || null,
+        client_secret: secret.trim() || null,
+        redirect_uri: `${window.location.origin}/api/email/gmail/callback`,
+      });
+      window.location.href = url;
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+  // 经本机 Claude CLI 已连好的 Gmail 连接器读信：会实际测一次（约半分钟），通过才保存
+  const useCli = async () => {
+    setError("");
+    setMsg("");
+    setBusy(true);
+    try {
+      setCfg(await api.post<GmailStatus>("/api/email/gmail/cli"));
+      setMsg(t("已连接：经由本机 Claude CLI 的 Gmail 连接器（只读）。"));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const test = async () => {
+    setError("");
+    setMsg(t("测试中…"));
+    try {
+      const r = await api.post<{ email: string | null }>("/api/email/gmail/test");
+      setMsg(r.email ? t("连线正常：{email}", { email: r.email }) : t("连线正常。"));
+    } catch (e) {
+      setMsg("");
+      setError((e as Error).message);
+    }
+  };
+  const disconnect = async () => {
+    setError("");
+    try {
+      await api.del("/api/email/gmail");
+      setMsg(viaCli ? t("已断开。") : t("已断开，并撤销了 Google 授权。"));
+      load();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  return (
+    <section className="card stack" aria-label={t("邮箱（Gmail，只读）")}>
+      <h3 style={{ margin: 0 }}>{t("邮箱（Gmail，只读）")}</h3>
+      <div>{t("只读：app 不会发信、不会删信、不会改标签。只读最近 30 天（之后是上次同步以来）符合求职关键词的信。")}</div>
+      <div className="muted">{t("每封信的文字会交给「邮件分类」任务的模型；用云端模型时会送到那家厂商。本机只存寄件人、日期、主旨和一小段证据原文。")}</div>
+      {cfg?.connected ? (
+        <>
+          <div>
+            {viaCli ? t("已连接：经由本机 Claude CLI 的 Gmail 连接器") : t("已连接：{email}", { email: cfg.email ?? "" })}
+            {cfg.connected_at && <span className="muted"> · {new Date(cfg.connected_at).toLocaleString()}</span>}
+          </div>
+          {viaCli && <div className="muted small">{CLI_NOTE}</div>}
+          <div className="row">
+            <button type="button" onClick={test}>
+              {t("测试连线")}
+            </button>
+            {!viaCli && (
+              <button type="button" onClick={connect}>
+                {t("重新连接")}
+              </button>
+            )}
+            <ConfirmButton
+              message={viaCli ? t("断开后不再读信；Claude CLI 本身的 Gmail 连接不受影响。已处理的信和状态历史会保留。") : t("断开后会撤销 Google 授权并删除本机保存的授权；已处理的信和状态历史会保留。")}
+              confirmLabel={t("确定断开")}
+              onConfirm={disconnect}
+            >
+              {t("断开连接")}
+            </ConfirmButton>
+          </div>
+        </>
+      ) : (
+        <>
+          <b>{t("用本机 Claude CLI 连接（推荐）")}</b>
+          <div className="muted">{t("如果你的 Claude Code 已在 claude.ai 的「设定 → Connectors」连接 Gmail，按一下就好，不用另外设定。")}</div>
+          <div className="muted small">{CLI_NOTE}</div>
+          <div className="row">
+            <button type="button" className="primary" onClick={useCli} disabled={DEMO || busy}>
+              {busy ? <><Spinner /> {t("测试中…")}</> : t("用 Claude CLI 连接 Gmail")}
+            </button>
+          </div>
+          <details>
+            <summary>{t("或用自己的 Google OAuth client")}</summary>
+            <div className="stack" style={{ marginTop: 8 }}>
+          <ol className="muted" style={{ margin: 0, paddingLeft: 20 }}>
+            <li>{t("到 Google Cloud Console 建一个项目，启用 Gmail API。")}</li>
+            <li>{t("设定 OAuth consent screen：类型选 External，把你自己的 Gmail 加为测试用户；权限只加 gmail.readonly。")}</li>
+            <li>{t("到「凭证」建一个 OAuth client，类型选「Desktop app」，把 client ID 和 client secret 贴到下面。")}</li>
+            <li>{t("按「连接 Gmail」，在 Google 授权页确认只有「读取邮件」的权限。")}</li>
+          </ol>
+          <div className="muted small">{t("consent screen 停在「测试」状态时，Google 的授权 7 天后会失效，到时同步会提示重新连接；改成「正式」状态就不会过期，但授权页会显示「Google 尚未验证这个 app」，因为 app 是你自己建的，按「继续」即可。")}</div>
+          <input aria-label="Google OAuth client ID" autoComplete="off" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder={cfg?.client_id ?? "Client ID"} />
+          <input
+            type="password"
+            aria-label="Google OAuth client secret"
+            autoComplete="off"
+            value={secret}
+            onChange={(e) => setSecret(e.target.value)}
+            placeholder={cfg?.has_client_secret ? t("已保存；留空则沿用") : "Client secret"}
+          />
+          <div className="row">
+            <button type="button" onClick={connect} disabled={DEMO}>
+              {t("连接 Gmail")}
+            </button>
+          </div>
+            </div>
+          </details>
+        </>
+      )}
+      {msg && <p className="notice">{msg}</p>}
+      {error && <p className="error">{error}</p>}
     </section>
   );
 }

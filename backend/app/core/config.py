@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     # Fernet key；用 `uv run python -m app.core.security` 产生
     app_secret_key: str = ""
     data_dir: Path = REPO_DIR / "data"
+    browser_page_interval: float = 4.0  # 登录浏览器：每开一页的间隔（秒）
     embedding_dim: int = 1536
 
     # 本机 CLI provider

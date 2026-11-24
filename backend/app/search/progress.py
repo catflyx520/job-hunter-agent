@@ -20,15 +20,17 @@ def begin(run_id: str, site_ids: list[str]) -> None:
             "done": 0,  # 已找到的可投职位
             "checked": 0,  # 已检查的职位页
             "outcomes": {},
+            "note": None,  # 需要用户处理的事（例如到浏览器窗口登录）
         }
 
 
 def site_done(run_id: str, site_id: str, status: str, found: int) -> None:
+    """这个网站搜完了。found 是这次新找到的，加在已知公司 board 先找到的数量上。"""
     with _lock:
         p = _progress.get(run_id)
         if p:
             p["sites"][site_id] = status
-            p["found"][site_id] = found
+            p["found"][site_id] = p["found"].get(site_id, 0) + found
 
 
 def site_more(run_id: str, site_id: str, found: int) -> None:
@@ -59,6 +61,13 @@ def set_kept(run_id: str, kept: int) -> None:
         p = _progress.get(run_id)
         if p:
             p["done"] = kept
+
+
+def set_note(run_id: str, note: str | None) -> None:
+    with _lock:
+        p = _progress.get(run_id)
+        if p:
+            p["note"] = note
 
 
 def finish(run_id: str) -> None:

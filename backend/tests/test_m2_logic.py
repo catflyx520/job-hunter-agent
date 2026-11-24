@@ -13,7 +13,14 @@ from app.graphs.materials import Citation, Draft, FactItem, NeedItem, verify_dra
 from app.jobs.exclusion import check_exclusions
 from app.jobs.extract import JobExtraction, verify_evidence
 from app.jobs.match import location_part, recency_part, recommend
-from app.jobs.normalize import canonical_key, location_tier, normalize_company, site_for_url
+from app.jobs.normalize import (
+    canonical_key,
+    job_page_url,
+    location_tier,
+    normalize_company,
+    parse_posted,
+    site_for_url,
+)
 from app.materials.images import ImageError, validate_images
 from app.rag.retrieve import Evidence, _or_query, rrf
 from app.schemas.profile import JobPreferences
@@ -118,6 +125,26 @@ def test_site_for_url():
     assert site_for_url("https://www.linkedin.com/jobs/view/1") == "linkedin"
     assert site_for_url("https://boards.greenhouse.io/acme/jobs/1") == "greenhouse"
     assert site_for_url("https://careers.acme.com/1") == "manual"
+
+
+def test_job_page_url():
+    view = "https://www.linkedin.com/jobs/view/4486075364"
+    assert (
+        job_page_url("https://www.linkedin.com/jobs/search-results/?currentJobId=4486075364&keywords=x&geoId=1") == view
+    )
+    assert job_page_url("https://www.linkedin.com/jobs/collections/recommended/?currentJobId=4486075364") == view
+    # 已经是职位页、没有职位编号、或不是 LinkedIn：原样回传
+    assert job_page_url(view + "?trk=abc") == view + "?trk=abc"
+    assert (
+        job_page_url("https://www.linkedin.com/jobs/search/?keywords=x")
+        == "https://www.linkedin.com/jobs/search/?keywords=x"
+    )
+    assert (
+        job_page_url("https://www.linkedin.com/feed/?currentJobId=1") == "https://www.linkedin.com/feed/?currentJobId=1"
+    )
+    assert (
+        job_page_url("https://careers.acme.com/jobs/?currentJobId=1") == "https://careers.acme.com/jobs/?currentJobId=1"
+    )
 
 
 def test_location_tier():
@@ -234,10 +261,31 @@ def test_program_scored_parts():
     assert location_part(job, prefs)["score"] == 10
     job.work_mode = "onsite"
     assert location_part(job, prefs)["score"] == 0
+    assert recency_part(job)["score"] == 8  # 「3 days ago」换算成日期：7 天内 6 + 贴上 2
+    job.posted_text = "sometime"
     r = recency_part(job)
-    assert r["score"] == 5 and "3 days ago" in r["reason"]
+    assert r["score"] == 5 and "sometime" in r["reason"]
     job.posted_at, job.verification_source = datetime.now(UTC) - timedelta(days=2), "employer_site"
     assert recency_part(job)["score"] == 10
+
+
+def test_parse_posted():
+    now = datetime(2026, 11, 15, tzinfo=UTC)
+    days = lambda s: (now - parse_posted(s, now)).days  # noqa: E731
+    assert days("3 days ago") == 3
+    assert days("Posted 9 days ago") == 9
+    assert days("Reposted 2 Months Ago") == 60
+    assert days("30+ days ago") == 30
+    assert days("1 week ago") == 7
+    assert days("5 hours ago") == 0
+    assert days("Just now") == 0
+    assert days("Yesterday") == 1
+    assert days("Posted Oct 25, 2026") == 21
+    assert days("October 25, 2026") == 21
+    assert days("2026-10-25") == 21
+    assert parse_posted("", now) is None
+    assert parse_posted("recently", now) is None
+    assert parse_posted("Foo 99, 2026", now) is None
 
 
 def test_recommend_respects_exclusion():

@@ -105,6 +105,9 @@ URL_EXAMPLES = {
     "dice": "https://www.dice.com/job-detail/0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b",
     "wttj": "https://www.welcometothejungle.com/en/companies/acme/jobs/software-engineer_new-york",
     "wwr": "https://weworkremotely.com/remote-jobs/acme-full-stack-engineer",
+    "greenhouse": "https://job-boards.greenhouse.io/acme/jobs/4012345678",
+    "lever": "https://jobs.lever.co/acme/0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b",
+    "ashby": "https://jobs.ashbyhq.com/acme/0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b",
 }
 
 
@@ -222,9 +225,14 @@ class SearxngSearcher(_QuerySearcher):
         ]
 
 
+SEARCH_KINDS = ("tavily", "searxng")  # integrations 表里也存 Hunter（邮箱查找），不是搜索服务
+
+
 def active_integration(db: Session) -> Integration | None:
     return db.scalars(
-        select(Integration).where(Integration.enabled.is_(True)).order_by(Integration.updated_at.desc())
+        select(Integration)
+        .where(Integration.enabled.is_(True), Integration.kind.in_(SEARCH_KINDS))
+        .order_by(Integration.updated_at.desc())
     ).first()
 
 

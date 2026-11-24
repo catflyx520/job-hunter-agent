@@ -1,20 +1,34 @@
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Icon } from "@/components/ui/icon";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Paper } from "@/components/ui/paper";
+import { Progress } from "@/components/ui/progress";
+import { Stamp } from "@/components/ui/stamp";
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, ApplicationStatus, JobPreferences, AtsBoard, JobDetail, JobSite, JobSummary, RunJob, SearchRun, SearchRunDetail, SearchSource } from "../api";
+import { api, ApplicationStatus, BrowserStatus, DEMO, JobPreferences, AtsBoard, JobDetail, JobSite, JobSummary, RunJob, SearchRun, SearchRunDetail, SearchSource } from "../api";
 import { StatusSelect } from "./ApplicationControl";
+import { JobMaterials, MaterialKind } from "./MaterialsPanel";
+import OutreachPanel from "./OutreachPanel";
 import { APP_STATUS, RUN_SITE_STATUS, RUN_STATUS, SPONSOR_STATUS, WORK_MODE, EMPLOYMENT, PROGRAM, salary, show } from "./labels";
 import RoleTags from "./RoleTags";
-import { ConfirmButton, Loading, Seg, Spinner, usePopover } from "./ui";
+import { ConfirmButton, Loading, Modal, Seg, Spinner, usePopover } from "./ui";
 import { locale, t } from "../i18n";
 
 
 type Bucket = "kept" | "excluded" | "duplicate" | "all" | "applied" | "deleted";
 // 已经投出去的状态（「已投递」分组与卡片标签用）
-const SUBMITTED: ApplicationStatus[] = ["applied", "interviewing", "offer", "rejected", "ghosted"];
+const SUBMITTED: ApplicationStatus[] = ["referred", "applied", "interviewing", "offer", "rejected", "ghosted"];
 const isSubmitted = (s: ApplicationStatus | null) => !!s && SUBMITTED.includes(s);
 type JobRow = JobSummary | RunJob;
 
 const ALL_SAVED = "__all__";
+const SHORT_NOTICE_KEY = "jobs.shortNoticeHidden";
+const PROGRAM_SHORT = { lca: "H-1B LCA", uscis_h1b: t("H-1B 批准"), perm: t("绿卡 PERM") };
 const PART_LABEL = { role: t("职位 / 产品内容"), tech: t("技术栈"), experience: t("年资与范围"), location: t("地点与工作方式"), recency: t("新鲜度与可信度") };
 const SEVERITY = { low: t("低"), medium: t("中"), high: t("高") };
 const REC_TAG = { apply: { text: t("建议投递"), cls: "pass" }, maybe: { text: t("可考虑 · 先看风险"), cls: "warn" }, skip: { text: t("建议跳过"), cls: "" } };
@@ -115,7 +129,7 @@ const bucketOf = (j: JobRow): Exclude<Bucket, "all"> =>
 
 function runLabel(r: SearchRun) {
   const d = new Date(r.started_at ?? r.created_at);
-  const time = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const time = `${d.getMonth() + 1}/${d.getDate()}`;
   return `${time} · ${RUN_STATUS[r.status].text}${r.counts.kept != null ? ` · ${t("保留 {n}", { n: r.target_jobs ? `${r.counts.kept} / ${r.target_jobs}` : r.counts.kept })}` : ""}`;
 }
 
@@ -139,13 +153,31 @@ export default function Jobs() {
   const [view, setView] = useState<string | null>(null); // 批次 id 或 ALL_SAVED
   const [run, setRun] = useState<SearchRunDetail | null>(null);
   const [saved, setSaved] = useState<JobSummary[] | null>(null);
+  const [pasted, setPasted] = useState<JobSummary[]>([]); // 自己贴上的职位，每个视图都排在最上面
   const [removed, setRemoved] = useState<Set<string>>(new Set()); // 永久删除的
   const [statusOf, setStatusOf] = useState<Record<string, ApplicationStatus | null>>({}); // 这页里改过的投递状态
   const [sponsor, setSponsor] = useState(true);
   const [coverage, setCoverage] = useState<Coverage | null>(null);
   const [bucket, setBucket] = useState<Bucket>("kept");
+  // 「这次只找到 N 个」的提示：按 ✕ 后这个批次不再显示（记在浏览器里），新批次不够数时会再出现
+  const [shortHidden, setShortHidden] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(SHORT_NOTICE_KEY);
+    } catch {
+      return null;
+    }
+  });
+  const hideShort = (id: string) => {
+    setShortHidden(id);
+    try {
+      localStorage.setItem(SHORT_NOTICE_KEY, id);
+    } catch {
+      // 无痕模式等存不了：只在这次页面里隐藏
+    }
+  };
   const [visaFilter, setVisaFilter] = useState<VisaFilter>("all");
   const [sort, setSort] = useState<"place" | "score">("place");
+  const [query, setQuery] = useState("");
   // 已投递 / 已删除：「地点优先」换成按时间、新的在上
   const timeSorted = (bucket === "applied" || bucket === "deleted") && sort === "place";
   const [error, setError] = useState("");
@@ -164,15 +196,18 @@ export default function Jobs() {
     [],
   );
 
+  const loadPasted = useCallback(() => api.get<JobSummary[]>("/api/jobs?pasted=true").then(setPasted), []);
+
   useEffect(() => {
     Promise.all([
       loadSites(),
       loadRuns(),
+      loadPasted(),
       api.get<SearchSource>("/api/search/source").then(setSource),
       api.get<{ data: JobPreferences }>("/api/preferences").then((p) => setPrefs(p.data)),
     ]).catch((e) => setError(e.message));
     api.get<Coverage>("/api/sponsor/coverage").then(setCoverage).catch(() => undefined);
-  }, [loadSites, loadRuns]);
+  }, [loadSites, loadRuns, loadPasted]);
 
   // 签证资料导入中：每 5 秒更新进度；导入完成时重新读取职位，签证历史就会补上
   const importing = coverage?.import?.state === "running";
@@ -214,6 +249,7 @@ export default function Jobs() {
     // 拉黑写进了求职需求；不重读的话，下次保存 tag 或目标数会用旧资料盖掉它
     api.get<{ data: JobPreferences }>("/api/preferences").then((p) => setPrefs(p.data)).catch(() => undefined);
     (view === ALL_SAVED ? loadSaved() : loadRun()).catch((e) => setError(e.message));
+    loadPasted().catch(() => undefined);
   };
 
   const active = run?.status === "pending" || run?.status === "running";
@@ -229,7 +265,7 @@ export default function Jobs() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.status]);
 
-  const updateSite = async (id: string, patch: Partial<Pick<JobSite, "enabled" | "max_results">>) => {
+  const updateSite = async (id: string, patch: Partial<Pick<JobSite, "enabled" | "max_results" | "access_method">>) => {
     setError("");
     try {
       const s = await api.patch<JobSite>(`/api/job-sites/${id}`, patch);
@@ -294,15 +330,22 @@ export default function Jobs() {
     }
   };
 
+  // manual = 不认识的网址（多半是公司自己的招聘页）
+  const siteName = (id: string) => (id === "manual" ? t("其他网站") : t(sites.find((s) => s.id === id)?.name ?? id));
   const chosen = sites.filter((s) => s.enabled && s.access_method !== "paste_only");
   const target = prefs?.search.target_jobs ?? 20;
   const busy = (runs ?? []).some((r) => r.status === "pending" || r.status === "running");
   const boardCount = sites.reduce((n, s) => n + (s.access_method === "ats_api" ? s.boards : 0), 0);
 
+  const pastedIds = useMemo(() => new Set(pasted.map((j) => j.id)), [pasted]);
   const all = useMemo<JobRow[]>(() => {
-    const list: JobRow[] = view === ALL_SAVED ? (saved ?? []) : (run?.jobs ?? []);
-    return list.filter((j) => !removed.has(j.id)).map((j) => (j.id in statusOf ? { ...j, application_status: statusOf[j.id] } : j));
-  }, [view, saved, run, removed, statusOf]);
+    const base: JobRow[] = view === ALL_SAVED ? (saved ?? []) : (run?.jobs ?? []);
+    const list = [...pasted, ...base.filter((j) => !pastedIds.has(j.id))];
+    const q = query.trim().toLowerCase();
+    return list
+      .filter((j) => !removed.has(j.id) && (!q || [j.title, j.company.display_name, j.location_text].join(" ").toLowerCase().includes(q)))
+      .map((j) => (j.id in statusOf ? { ...j, application_status: statusOf[j.id] } : j));
+  }, [view, saved, run, pasted, pastedIds, removed, statusOf, query]);
 
   const visible = useMemo(() => {
     const list = all.filter(
@@ -310,14 +353,16 @@ export default function Jobs() {
         inBucket(j, bucket) &&
         VISA_FILTER[visaFilter].test(j),
     );
-    if (sort === "score") return [...list].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
-    if (timeSorted) {
-      // 已投递按投递时间、已删除按删除时间，新的在上面
-      const when = (j: JobRow) => Date.parse((bucket === "applied" ? j.applied_at : j.status_at) ?? j.status_at ?? "") || 0;
-      return [...list].sort((a, b) => when(b) - when(a));
-    }
-    return list;
-  }, [all, bucket, visaFilter, sort, timeSorted]);
+    // 已投递按投递时间、已删除按删除时间，新的在上面
+    const when = (j: JobRow) => Date.parse((bucket === "applied" ? j.applied_at : j.status_at) ?? j.status_at ?? "") || 0;
+    const sorted =
+      sort === "score"
+        ? [...list].sort((a, b) => (b.score ?? -1) - (a.score ?? -1))
+        : timeSorted
+          ? [...list].sort((a, b) => when(b) - when(a))
+          : list;
+    return [...sorted.filter((j) => pastedIds.has(j.id)), ...sorted.filter((j) => !pastedIds.has(j.id))];
+  }, [all, bucket, visaFilter, sort, timeSorted, pastedIds]);
 
   const count = (b: Bucket) => all.filter((j) => inBucket(j, b)).length;
   const paused = new Set(prefs?.paused_roles ?? []);
@@ -356,7 +401,7 @@ export default function Jobs() {
       )}
 
       <section className="search-row" aria-label={t("搜索条件")} ref={pop.ref}>
-        <div className="search-cells">
+        <Paper stock="graph" tilt={false} className="search-cells">
           <div className="pop-wrap">
             <button type="button" className="cell" aria-expanded={pop.open === "roles"} onClick={() => pop.toggle("roles")}>
               <span className="cell-label">{t("目标职位 ▾")}</span>
@@ -389,28 +434,28 @@ export default function Jobs() {
             {pop.open === "sources" && <SourcesPanel sites={sites} run={active ? run : null} boardCount={boardCount} target={target} onTarget={saveTarget} onUpdate={updateSite} onBoardsChanged={loadSites} />}
           </div>
           <label className="cell">
-            <input type="checkbox" checked={sponsor} onChange={(e) => setSponsor(e.target.checked)} />
+            <Checkbox checked={sponsor} onCheckedChange={(v) => setSponsor(v === true)} />
             <span>
               <span className="cell-label">{t("签证历史")}</span>
               <span className="cell-value">{t("同时查 H-1B / 绿卡")}</span>
             </span>
           </label>
-        </div>
+        </Paper>
 
         {active ? (
-          <button type="button" onClick={cancel}>
+          <Button type="button" variant="outline" size="lg" className="search-btn" onClick={cancel}>
             {p?.phase === "searching" ? t("搜索中") : `${p?.done ?? 0} / ${p?.total ?? 0}`} · {t("取消")}
-          </button>
+          </Button>
         ) : (
-          <button type="button" className="primary" onClick={start} disabled={starting || busy || chosen.length === 0}>
-            {busy ? <><Spinner />{t("搜索进行中…")}</> : starting ? <><Spinner />{t("正在建立批次…")}</> : t("开始搜索")}
-          </button>
+          <Button type="button" size="lg" className="search-btn" onClick={start} disabled={starting || busy || chosen.length === 0}>
+            {busy ? <><Spinner />{t("搜索进行中…")}</> : starting ? <><Spinner />{t("正在建立批次…")}</> : <><Icon name="search" size={20} />{t("搜索")}</>}
+          </Button>
         )}
 
         <div className="pop-wrap">
-          <button type="button" aria-expanded={pop.open === "paste"} onClick={() => pop.toggle("paste")}>
+          <Button type="button" variant="outline" size="lg" className="search-btn" aria-expanded={pop.open === "paste"} onClick={() => pop.toggle("paste")}>
             {t("贴职位")}
-          </button>
+          </Button>
           {pop.open === "paste" && (
             <div className="pop right">
               <PasteJob />
@@ -421,14 +466,14 @@ export default function Jobs() {
 
       <section className="filter-row" aria-label={t("结果筛选")}>
         <div className="row">
-          <select aria-label={t("搜索批次")} value={view ?? ""} onChange={(e) => setView(e.target.value)} style={{ maxWidth: "100%" }}>
+          <NativeSelect aria-label={t("搜索批次")} value={view ?? ""} onChange={(e) => setView(e.target.value)} style={{ maxWidth: "100%" }}>
             {(runs ?? []).map((r) => (
               <option key={r.id} value={r.id}>
                 {runLabel(r)}
               </option>
             ))}
             <option value={ALL_SAVED}>{t("所有已存的职位")}</option>
-          </select>
+          </NativeSelect>
           <Seg<Bucket>
             label={t("职位分组")}
             value={bucket}
@@ -436,35 +481,38 @@ export default function Jobs() {
             options={[
               { value: "kept", label: t("待看 {n}", { n: count("kept") }) },
               { value: "applied", label: t("已投递 {n}", { n: count("applied") }) },
-              { value: "excluded", label: t("被排除 {n}", { n: count("excluded") }) },
-              { value: "duplicate", label: t("之前已有 {n}", { n: count("duplicate") }) },
-              { value: "all", label: t("全部 {n}", { n: count("all") }) },
               { value: "deleted", label: t("已删除 {n}", { n: count("deleted") }) },
             ]}
           />
+          <Input type="search" className="w-56" aria-label={t("搜索职位")} placeholder={t("搜索职称、公司或地点")} value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
         <div className="row">
-          <select aria-label={t("签证筛选")} value={visaFilter} onChange={(e) => setVisaFilter(e.target.value as VisaFilter)}>
+          <NativeSelect aria-label={t("签证筛选")} value={visaFilter} onChange={(e) => setVisaFilter(e.target.value as VisaFilter)}>
             {(Object.keys(VISA_FILTER) as VisaFilter[]).map((k) => (
               <option key={k} value={k}>
                 {VISA_FILTER[k].label}
               </option>
             ))}
-          </select>
-          <select aria-label={t("排序")} value={sort} onChange={(e) => setSort(e.target.value as "place" | "score")}>
+          </NativeSelect>
+          <NativeSelect aria-label={t("排序")} value={sort} onChange={(e) => setSort(e.target.value as "place" | "score")}>
             <option value="place">{bucket === "applied" ? t("排序：最近投递") : bucket === "deleted" ? t("排序：最近删除") : t("排序：地点优先")}</option>
             <option value="score">{t("排序：匹配分数")}</option>
-          </select>
+          </NativeSelect>
         </div>
       </section>
 
       {run?.error && <p className="error">{run.error}</p>}
-      {run?.status === "completed" && run.target_jobs != null && (run.counts.kept ?? 0) < run.target_jobs && (
-        <p className="notice">
-          {t("这次只找到 {kept} 个可投职位（目标 {target} 个）：各网站能找到的职位都检查完了。可以多勾几个来源，或放宽求职条件后再搜一次。", {
-            kept: run.counts.kept ?? 0,
-            target: run.target_jobs,
-          })}
+      {run?.status === "completed" && run.target_jobs != null && (run.counts.kept ?? 0) < run.target_jobs && shortHidden !== run.id && (
+        <p className="notice row between" style={{ flexWrap: "nowrap" }}>
+          <span>
+            {t("这次只找到 {kept} 个可投职位（目标 {target} 个）：各网站能找到的职位都检查完了。可以多勾几个来源，或放宽求职条件后再搜一次。", {
+              kept: run.counts.kept ?? 0,
+              target: run.target_jobs,
+            })}
+          </span>
+          <Button type="button" variant="ghost" size="icon-sm" aria-label={t("关闭提示")} title={t("关闭提示")} onClick={() => hideShort(run.id)}>
+            <Icon name="x" />
+          </Button>
         </p>
       )}
 
@@ -473,6 +521,7 @@ export default function Jobs() {
           <JobCard
             key={j.id}
             job={j}
+            siteName={siteName}
             onStatus={(st) => setStatusOf((m) => ({ ...m, [j.id]: st }))}
             onRemoved={() => setRemoved((s) => new Set(s).add(j.id))}
             onBlacklisted={reloadJobs}
@@ -484,6 +533,7 @@ export default function Jobs() {
         )}
         {active && (
           <div className="card search-progress">
+            {p?.note && <p className="notice">{p.note}</p>}
             <div className="loading-line muted">
               <Spinner size={18} />
               <span>
@@ -526,11 +576,16 @@ function SourcesPanel({
   boardCount: number;
   target: number;
   onTarget: (n: number) => void;
-  onUpdate: (id: string, patch: Partial<Pick<JobSite, "enabled" | "max_results">>) => void;
+  onUpdate: (id: string, patch: Partial<Pick<JobSite, "enabled" | "max_results" | "access_method">>) => void;
   onBoardsChanged: () => void;
 }) {
   const [boards, setBoards] = useState(false);
-  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // 登录浏览器有没有在设定页开启：没开时 LinkedIn 只能用网页搜索
+  const [browserOn, setBrowserOn] = useState(false);
+  useEffect(() => {
+    if (!DEMO) api.get<BrowserStatus>("/api/browser").then((b) => setBrowserOn(b.enabled)).catch(() => undefined);
+  }, []);
   if (boards) {
     return (
       <div className="pop">
@@ -586,13 +641,30 @@ function SourcesPanel({
                     ) : pasteOnly ? (
                       t("只支援贴网址 / JD")
                     ) : s.access_method === "ats_api" ? (
-                      t("官方 API · {n} 个公司 board", { n: s.boards })
+                      t("搜索找公司，再读官方 API · 已知 {n} 个公司 board", { n: s.boards })
+                    ) : s.access_method === "browser" ? (
+                      t("登录浏览器 · 用你的登录身份读职位")
                     ) : (
                       `${t("网页搜索 · 只读公开职位页")}${s.limitation_note ? ` · ${t(s.limitation_note)}` : ""}`
                     )}
                   </span>
                 </span>
               </label>
+              {BROWSER_SITES.includes(s.id) && (
+                <span className="inline" style={{ flexShrink: 0, whiteSpace: "nowrap" }}>
+                  <NativeSelect size="sm" aria-label={t("{name} 的取得方式", { name: s.name })} value={s.access_method} onChange={(e) => onUpdate(s.id, { access_method: e.target.value as JobSite["access_method"] })}>
+                    <option value="web_search">{t("网页搜索")}</option>
+                    <option value="browser" disabled={!browserOn}>
+                      {t("登录浏览器")}
+                    </option>
+                  </NativeSelect>
+                  {!browserOn && (
+                    <Link className="small" to="/settings">
+                      {t("到设定开启")}
+                    </Link>
+                  )}
+                </span>
+              )}
               {!pasteOnly && (
                 <label className="inline" title={t("每一轮最多从这个网站拿几个职位页")}>
                   {t("上限")}
@@ -620,18 +692,27 @@ function SourcesPanel({
   );
 }
 
+// 能改用登录浏览器的网站（后端的 BROWSER_SITES）
+const BROWSER_SITES = ["linkedin"];
+
+// 旧的 badge 类别对应 looseleaf Badge：pass 绿、warn 橙、fail 粉，其余只描边
+function tagProps(cls: string): { variant?: "outline"; tone?: "grass" | "tangerine" | "bubblegum" } {
+  return cls === "pass" ? { tone: "grass" } : cls === "warn" ? { tone: "tangerine" } : cls === "fail" ? { tone: "bubblegum" } : { variant: "outline" };
+}
+
 function JobCard({
   job,
+  siteName,
   onStatus,
   onRemoved,
   onBlacklisted,
 }: {
   job: JobRow;
+  siteName: (id: string) => string;
   onStatus: (s: ApplicationStatus | null) => void;
   onRemoved: () => void;
   onBlacklisted: (message: string) => void;
 }) {
-  const nav = useNavigate();
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<JobDetail | null>(null);
   const [status, setStatus] = useState<ApplicationStatus | null>(job.application_status);
@@ -646,10 +727,42 @@ function JobCard({
     onStatus(s);
   };
 
+  const loadDetail = () => detail || api.get<JobDetail>(`/api/jobs/${job.id}`).then(setDetail).catch((e) => setError(e.message));
   const toggle = () => {
     setOpen(!open);
-    if (!open && !detail) api.get<JobDetail>(`/api/jobs/${job.id}`).then(setDetail).catch((e) => setError(e.message));
+    if (!open) loadDetail();
   };
+
+  // 「材料与内推」窗口：三个 tab 都留着不卸载，切换或关掉再开，写到一半的内容还在
+  const [win, setWin] = useState(false);
+  const [tab, setTab] = useState<MaterialKind | "reach_out">("cover_letter");
+  const [material, setMaterial] = useState<MaterialKind>("cover_letter");
+  const [reached, setReached] = useState(false);
+  const sent = useRef(false);
+  const pickTab = (next: MaterialKind | "reach_out") => {
+    setTab(next);
+    if (next === "reach_out") setReached(true);
+    else setMaterial(next);
+  };
+  const openWin = () => {
+    setWin(true);
+    loadDetail(); // 要知道有没有存 JD
+  };
+  // 记录发送后状态会变成「已请求内推」、卡片会移到别的分组：等窗口关了再更新，免得窗口用到一半消失
+  const closeWin = () => {
+    setWin(false);
+    if (!sent.current) return;
+    sent.current = false;
+    api
+      .get<{ status: ApplicationStatus; applied_at: string | null } | null>(`/api/jobs/${job.id}/application`)
+      .then((a) => {
+        if (!a) return;
+        setAppliedAt(a.applied_at);
+        changed(a.status);
+      })
+      .catch((e) => setError(e.message));
+  };
+  const winTitle = `${job.title} · ${job.company.display_name}`;
 
   const markApplied = async () => {
     setError("");
@@ -701,13 +814,15 @@ function JobCard({
       ? t("排除原因：{list}", { list: run.exclusion_reasons.map((r) => t(r.label)).join(t("；")) })
       : run?.outcome === "duplicate"
         ? t("在之前的搜索批次里已经出现过。")
-        : EMPLOYMENT[job.employment_type];
-  const verified = job.status === "unverified" ? t("未在官网核实是否仍在招聘") : job.status === "expired" ? t("已下架 / 过期") : t("仍在招聘（已读取页面）");
-  const sourceLine = [run?.found_on.join("、"), job.company.display_name].filter(Boolean).join(" · ");
+        : null;
+  const employment = job.employment_type !== "unknown" ? EMPLOYMENT[job.employment_type] : null;
+  // 仍在招聘就不写；只提示没核实或已下架
+  const verified = job.status === "unverified" ? t("未在官网核实是否仍在招聘") : job.status === "expired" ? t("已下架 / 过期") : null;
+  const sourceLine = `${job.company.display_name} · ${job.found_on.length ? t("来源：{sites}", { sites: job.found_on.map(siteName).join("、") }) : t("自己加入的职位")}`;
   const m = detail?.match;
 
   return (
-    <article className={`job-card${isSubmitted(status) ? " submitted" : ""}`}>
+    <Card stock="paper" className={`job-card gap-0 py-0${isSubmitted(status) ? " submitted" : ""}`}>
       <div className="job-main">
         <div className="job-info">
           <div className="muted">{sourceLine}</div>
@@ -716,37 +831,87 @@ function JobCard({
           </h2>
           <div className="job-tags">
             {isSubmitted(status) && (
-              <span className={`badge applied-tag ${status === "rejected" ? "fail" : status === "ghosted" ? "warn" : ""}`}>
+              <Badge tone={status === "rejected" ? "bubblegum" : status === "ghosted" ? "tangerine" : "marker"}>
                 ✓ {APP_STATUS[status!].text}
-                {appliedAt && ` · ${new Date(appliedAt).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}${status === "applied" ? "" : t(" 投递")}`}
-              </span>
+                {appliedAt && ` · ${new Date(appliedAt).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}${status === "applied" || status === "referred" ? "" : t(" 投递")}`}
+              </Badge>
             )}
-            <span className={`badge ${rec.cls}`}>{rec.text}</span>
-            <span className={`badge ${policy.cls}`}>Sponsorship：{policy.text}</span>
-            {visa && <span className={`badge ${visa.cls}`}>{t("H-1B / 绿卡：{text}", { text: visa.text })}</span>}
+            <Badge {...tagProps(rec.cls)}>{rec.text}</Badge>
+            <Badge {...tagProps(policy.cls)}>Sponsorship：{policy.text}</Badge>
+            {visa && (job.sponsor_status === "records_found" || job.sponsor_status === "no_match_in_scope") ? (
+              <>
+                <Badge {...tagProps(job.sponsor_h1b ? "pass" : "")}>{job.sponsor_h1b ? "✓" : "✗"} H-1B</Badge>
+                <Badge {...tagProps(job.sponsor_perm ? "pass" : "")}>{job.sponsor_perm ? "✓" : "✗"} {t("绿卡 PERM")}</Badge>
+              </>
+            ) : (
+              visa && <Badge {...tagProps(visa.cls)}>{t("H-1B / 绿卡：{text}", { text: visa.text })}</Badge>
+            )}
           </div>
           <div>
             {show(job.location_text)} · {WORK_MODE[job.work_mode]}
+            {employment && ` · ${employment}`} · <b style={{ fontWeight: 600 }}>{salary(job.salary_min, job.salary_max, job.salary_period)}</b> · {posted}
           </div>
-          <div>
-            <b style={{ fontWeight: 600 }}>{salary(job.salary_min, job.salary_max, job.salary_period)}</b> · {posted}
-          </div>
-          <div className="muted" style={{ marginTop: 2, color: excluded ? "var(--fail)" : undefined }}>
-            {note}
-          </div>
+          {note && (
+            <div className="muted" style={{ marginTop: 2, color: excluded ? "var(--fail)" : undefined }}>
+              {note}
+            </div>
+          )}
         </div>
         <div className="job-score">
-          <b>
-            {job.score ?? t("未评分")}
-            {job.score != null && <span className="muted small"> / 100</span>}
-          </b>
+          {job.score != null ? (
+            <Stamp shape="round" text={String(job.score)} sub="/ 100" size={78} seed={job.id} label={`${job.score} / 100`} />
+          ) : (
+            <b>{t("未评分")}</b>
+          )}
           <span className="muted small">{job.score != null ? t("匹配度估计") : excluded ? t("已排除") : t("尚未评分")}</span>
         </div>
       </div>
 
-      <button type="button" className="job-toggle" aria-expanded={open} onClick={toggle}>
-        {open ? "▼" : "▶"} {t("匹配理由、风险和签证历史")}
-      </button>
+      {error && <p className="error">{error}</p>}
+      <div className="job-foot">
+        <div className="row">
+          <Button type="button" variant="link" size="sm" className="px-0" aria-expanded={open} onClick={toggle}>
+            {open ? "▼" : "▶"} {t("匹配理由、风险和签证历史")}
+          </Button>
+          {verified && <span className="muted">{verified}</span>}
+        </div>
+        <div className="job-actions">
+          {job.apply_url && (
+            <Button asChild variant="outline" size="sm" className="text-link">
+              <a href={job.apply_url} target="_blank" rel="noopener noreferrer">
+                {t("打开职位 / 自行申请 ↗")}
+              </a>
+            </Button>
+          )}
+          {!deleted && (status === null || status === "saved") && (
+            <Button type="button" variant="outline" size="sm" onClick={markApplied}>
+              {t("我已投递")}
+            </Button>
+          )}
+          <Button type="button" variant="outline" size="sm" onClick={openWin} title={t("Cover Letter、申请问答、找人内推")}>
+            {t("材料与内推")}
+          </Button>
+          {deleted ? (
+            <>
+              <Button type="button" variant="outline" size="sm" onClick={restore}>
+                {t("还原")}
+              </Button>
+              <ConfirmButton className="danger" message={t("永久删除「{title}」？评分、来源、投递记录都会一起删除，无法复原。", { title: job.title })} confirmLabel={t("确定永久删除")} onConfirm={purge}>
+                {t("永久删除")}
+              </ConfirmButton>
+            </>
+          ) : (
+            <>
+              <StatusSelect jobId={job.id} status={status} onChange={changed} />
+              <BlockButton job={job} onDone={onBlacklisted} />
+              {/* 不用确认：只是移到「已删除」，可以还原 */}
+              <Button type="button" variant="outline" size="sm" className="text-destructive" onClick={dismiss}>
+                {t("删除")}
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
       {open && !detail && !error && <Loading className="pad-x" />}
       {open && detail && (
         <div className="job-more">
@@ -754,14 +919,10 @@ function JobCard({
             <h3>{t("为什么匹配")}</h3>
             {!m && <p className="muted">{excluded ? t("这个职位已被排除，没有评分。") : t("尚未评分。")}</p>}
             {m && m.reasons.length === 0 && <p className="muted">{t("没有可以引用履历证据的理由。")}</p>}
+            {/* 列表里只放理由；履历证据在职位详情页看 */}
             {m?.reasons.map((r, i) => (
               <div className="reason" key={i}>
-                <div>{r.text}</div>
-                {r.chunk_ids.map((c) => (
-                  <div className="evidence-box" key={c}>
-                    {t("履历证据：{text}", { text: detail.evidence[c] ?? c })}
-                  </div>
-                ))}
+                {r.text}
               </div>
             ))}
             <h3>{t("缺口与风险")}</h3>
@@ -784,9 +945,7 @@ function JobCard({
                         {m.breakdown[k].score} / {m.breakdown[k].max}
                       </span>
                     </div>
-                    <div className="part-track">
-                      <span className="part-fill" style={{ width: `${(m.breakdown[k].score / Math.max(m.breakdown[k].max, 1)) * 100}%` }} />
-                    </div>
+                    <Progress size="sm" value={m.breakdown[k].score} max={Math.max(m.breakdown[k].max, 1)} aria-label={PART_LABEL[k]} />
                   </div>
                 ))}
                 <p className="muted small">{t("分数是契合度估计，不是录取概率。")}</p>
@@ -795,66 +954,55 @@ function JobCard({
             <h3>{t("公司签证历史")}</h3>
             {detail.sponsor ? (
               <>
-                <div>
-                  {SPONSOR_STATUS[detail.sponsor.status].text} · <span className="muted">{SPONSOR_STATUS[detail.sponsor.status].desc}</span>
-                </div>
-                {Object.entries(detail.sponsor.summary.programs).map(([prog, years]) => (
-                  <div className="muted" key={prog}>
-                    {PROGRAM[prog] ?? prog}：{years.map((y) => `FY${y.fiscal_year}`).join("、")}
-                  </div>
-                ))}
+                <div title={SPONSOR_STATUS[detail.sponsor.status].desc}>{SPONSOR_STATUS[detail.sponsor.status].text}</div>
+                {/* 每类只写通过的件数和最近一年；逐年明细在职位详情页 */}
+                {(["lca", "uscis_h1b", "perm"] as const)
+                  // 全是 0 的年份不算记录
+                  .map((prog) => [prog, (detail.sponsor!.summary.programs[prog] ?? []).filter((y) => y.filed || y.certified_or_approved || y.denied)] as const)
+                  .filter(([, years]) => years.length)
+                  .map(([prog, years]) => {
+                    const approved = years.filter((y) => y.certified_or_approved > 0);
+                    const n = approved.reduce((sum, y) => sum + y.certified_or_approved, 0);
+                    const last = Math.max(...(approved.length ? approved : years).map((y) => y.fiscal_year));
+                    return (
+                      <div className="muted" key={prog} title={PROGRAM[prog]}>
+                        {t("{program}：通过 {n} 件 · 最近 FY{year}", { program: PROGRAM_SHORT[prog], n: n.toLocaleString(locale), year: last })}
+                      </div>
+                    );
+                  })}
               </>
             ) : (
               <div className="muted">{t("未查。")}</div>
             )}
-            <Link to={`/jobs/${job.id}`} className="btn" style={{ border: 0, padding: 0, color: "var(--accent-text)" }}>
-              {t("查看 JD 全文与完整记录")}
-            </Link>
+            <Button asChild variant="link" size="sm" className="px-0">
+              <Link to={`/jobs/${job.id}`}>{t("查看 JD 全文与完整记录")}</Link>
+            </Button>
           </div>
         </div>
       )}
 
-      {error && <p className="error">{error}</p>}
-      <div className="job-foot">
-        <div className="muted">{verified}</div>
-        <div className="job-actions">
-          {job.apply_url && (
-            <a className="btn accent" href={job.apply_url} target="_blank" rel="noopener noreferrer">
-              {t("打开职位 / 自行申请 ↗")}
-            </a>
-          )}
-          <button type="button" onClick={() => nav(`/jobs/${job.id}?material=cover_letter#materials`)}>
-            {t("生成 Cover Letter")}
-          </button>
-          <button type="button" onClick={() => nav(`/jobs/${job.id}?material=qa#materials`)}>
-            {t("申请问答")}
-          </button>
-          {!deleted && (status === null || status === "saved") && (
-            <button type="button" onClick={markApplied}>
-              {t("我已投递")}
-            </button>
-          )}
-          {deleted ? (
-            <>
-              <button type="button" onClick={restore}>
-                {t("还原")}
-              </button>
-              <ConfirmButton className="danger" message={t("永久删除「{title}」？评分、来源、投递记录都会一起删除，无法复原。", { title: job.title })} confirmLabel={t("确定永久删除")} onConfirm={purge}>
-                {t("永久删除")}
-              </ConfirmButton>
-            </>
-          ) : (
-            <>
-              <StatusSelect jobId={job.id} status={status} onChange={changed} />
-              <BlockButton job={job} onDone={onBlacklisted} />
-              <ConfirmButton className="danger" message={t("删除「{title}」？会移到「已删除」，可以还原。", { title: job.title })} onConfirm={dismiss}>
-                {t("删除")}
-              </ConfirmButton>
-            </>
-          )}
+      <Modal open={win} title={winTitle} onClose={closeWin}>
+        <Seg<MaterialKind | "reach_out">
+          label={t("材料与内推")}
+          value={deleted && tab === "reach_out" ? "cover_letter" : tab}
+          onChange={pickTab}
+          options={[
+            { value: "cover_letter", label: "Cover Letter" },
+            { value: "qa", label: t("申请问答") },
+            ...(deleted ? [] : [{ value: "reach_out" as const, label: t("内推") }]),
+          ]}
+        />
+        <div hidden={tab === "reach_out" && !deleted}>
+          {detail ? <JobMaterials jobId={job.id} initialKind={material} hasJd={!!detail.jd_text} hideKinds /> : error ? <p className="error">{error}</p> : win && <Loading />}
         </div>
-      </div>
-    </article>
+        {reached && !deleted && (
+          <div hidden={tab !== "reach_out"}>
+            <OutreachPanel job={job} onSent={() => (sent.current = true)} />
+          </div>
+        )}
+      </Modal>
+
+    </Card>
   );
 }
 
@@ -891,9 +1039,9 @@ function BlockButton({ job, onDone }: { job: JobRow; onDone: (message: string) =
 
   return (
     <div className="pop-wrap" ref={pop.ref}>
-      <button type="button" aria-expanded={pop.open === "block"} onClick={() => pop.toggle("block")}>
+      <Button type="button" variant="outline" size="sm" aria-expanded={pop.open === "block"} onClick={() => pop.toggle("block")}>
         {t("拉黑 ▾")}
-      </button>
+      </Button>
       {pop.open === "block" && (
         <div className="pop right up">
           <b>{t("拉黑后不再看到")}</b>
@@ -971,7 +1119,7 @@ function AtsBoards({ onChange }: { onChange: () => void }) {
 
   return (
     <>
-      <div className="muted small">{t("读过含这些链接的职位页时会自动加入，也可以手动加入。")}</div>
+      <div className="muted small">{t("搜索时找到的公司、读过的职位页里的链接都会自动加入，也可以手动加入。")}</div>
       <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder={t("Greenhouse / Lever / Ashby 的公司 board 网址")} aria-label={t("公司 board 网址")} />
       <div className="row">
         <input style={{ flex: 1, minWidth: 0 }} value={company} onChange={(e) => setCompany(e.target.value)} placeholder={t("公司名称（选填）")} aria-label={t("公司名称")} />

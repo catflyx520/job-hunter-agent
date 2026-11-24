@@ -19,6 +19,8 @@ Task = Literal[
     "qa",
     "search",
     "embedding",
+    "outreach",
+    "email_classify",
 ]
 
 

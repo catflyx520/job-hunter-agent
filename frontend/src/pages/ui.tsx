@@ -1,4 +1,6 @@
 import { ReactNode, useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { t } from "../i18n";
 
 /** 读取 / 处理中的旋转图示。放在文字旁边；屏幕阅读器读旁边的文字，图示本身隐藏。 */
@@ -29,13 +31,13 @@ export function Seg<T extends string>({
   label: string;
 }) {
   return (
-    <div className="seg" role="tablist" aria-label={label}>
+    <ToggleGroup type="single" variant="outline" tone="hi" size="sm" aria-label={label} value={value} onValueChange={(v) => v && onChange(v as T)}>
       {options.map((o) => (
-        <button key={o.value} type="button" role="tab" aria-selected={value === o.value} className={value === o.value ? "on" : ""} onClick={() => onChange(o.value)}>
+        <ToggleGroupItem key={o.value} value={o.value}>
           {o.label}
-        </button>
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   );
 }
 
@@ -84,16 +86,24 @@ export function ConfirmButton({
   const [asking, setAsking] = useState(false);
   if (!asking)
     return (
-      <button type="button" className={className} disabled={disabled} onClick={() => setAsking(true)}>
+      <Button
+        type="button"
+        variant={className.includes("link") ? "link" : "outline"}
+        size="sm"
+        className={className.includes("danger") ? "text-destructive" : undefined}
+        disabled={disabled}
+        onClick={() => setAsking(true)}
+      >
         {children}
-      </button>
+      </Button>
     );
   return (
     <span className="confirm-inline" role="alertdialog" aria-label={message}>
       <span>{message}</span>
-      <button
+      <Button
         type="button"
-        className="danger-solid"
+        variant="destructive"
+        size="sm"
         autoFocus
         onClick={async () => {
           setAsking(false);
@@ -101,10 +111,31 @@ export function ConfirmButton({
         }}
       >
         {confirmLabel}
-      </button>
-      <button type="button" onClick={() => setAsking(false)}>
+      </Button>
+      <Button type="button" variant="outline" size="sm" onClick={() => setAsking(false)}>
         {t("取消")}
-      </button>
+      </Button>
     </span>
+  );
+}
+
+/** 弹窗。关掉后内容留着（不卸载），再打开时搜索结果、写到一半的草稿都还在。 */
+export function Modal({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: ReactNode }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const d = ref.current;
+    if (open && !d?.open) d?.showModal();
+    if (!open && d?.open) d.close();
+  }, [open]);
+  return (
+    <dialog ref={ref} className="modal" aria-label={title} onClose={onClose}>
+      <div className="modal-head row between">
+        <b>{title}</b>
+        <Button type="button" variant="outline" size="sm" onClick={onClose}>
+          {t("关闭")} ✕
+        </Button>
+      </div>
+      <div className="modal-body">{children}</div>
+    </dialog>
   );
 }

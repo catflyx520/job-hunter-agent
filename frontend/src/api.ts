@@ -155,6 +155,7 @@ export interface JobPreferences {
     note: string;
   };
   search: { sites: string[]; per_site_limit: number; total_limit: number; target_jobs: number };
+  linkedin_premium: boolean;
 }
 
 export type VisaStatus = "us_citizen" | "green_card" | "h1b" | "opt" | "other";
@@ -248,11 +249,12 @@ export interface JobSummary {
   application_status: ApplicationStatus | null;
   applied_at: string | null;
   status_at: string | null;
+  found_on: string[]; // 在哪些网站找到（job_sites.id）
 }
 
 // ---------- 投递追踪（F5） ----------
 
-export type ApplicationStatus = "saved" | "applied" | "interviewing" | "offer" | "rejected" | "ghosted" | "dismissed";
+export type ApplicationStatus = "saved" | "referred" | "applied" | "interviewing" | "offer" | "rejected" | "ghosted" | "dismissed";
 
 export interface Application {
   id: string;
@@ -265,7 +267,78 @@ export interface Application {
   notes: string | null;
   created_at: string;
   updated_at: string;
-  events: { id: number; from_status: string | null; to_status: ApplicationStatus; note: string | null; at: string }[];
+  events: {
+    id: number;
+    from_status: string | null;
+    to_status: ApplicationStatus;
+    note: string | null;
+    at: string;
+    source?: "user" | "email";
+    email_message?: EmailEvidence | null;
+  }[];
+}
+
+// ---------- 邮件同步（F5，Gmail 只读） ----------
+
+export interface EmailEvidence {
+  from_addr: string;
+  subject: string;
+  received_at: string;
+  gmail_url: string;
+}
+
+export interface GmailStatus {
+  connected: boolean;
+  email: string | null;
+  connected_at: string | null;
+  client_id: string | null;
+  has_client_secret: boolean;
+  mode: "claude_cli" | "oauth" | null;
+  last_sync: { id: string; status: string; started_at: string } | null;
+}
+
+export type MailKind = "application_received" | "rejection" | "interview" | "offer" | "not_evidence";
+
+export interface MailMsg extends EmailEvidence {
+  id: string;
+  excerpt: string | null;
+  kind: MailKind;
+  company: string | null;
+  title: string | null;
+}
+
+export interface MailJob {
+  job_id: string | null;
+  company: string | null;
+  title: string | null;
+  status: ApplicationStatus | null;
+}
+
+export interface MailItem extends MailJob {
+  message: MailMsg;
+  from: ApplicationStatus | null;
+  to: ApplicationStatus | null;
+}
+
+export interface ReviewItem {
+  message: MailMsg;
+  reason: string | null;
+  candidates: MailJob[];
+  bulk_create: boolean; // 信里写明公司与职称、找不到对应职位：可以一次全部新建
+}
+
+export interface EmailSync {
+  id: string | null;
+  status: "running" | "completed" | "failed" | null;
+  window_after?: string;
+  window_before?: string | null;
+  fetched?: number;
+  processed?: number;
+  truncated?: boolean;
+  error?: string | null;
+  finished_at?: string | null;
+  summary: { created: MailItem[]; updated: MailItem[]; evidence_only: MailItem[]; needs_review: number; ignored: number } | null;
+  needs_review: ReviewItem[];
 }
 
 // ---------- 搜索（F3） ----------
@@ -273,12 +346,98 @@ export interface Application {
 export interface JobSite {
   id: string;
   name: string;
-  access_method: "web_search" | "ats_api" | "paste_only";
+  access_method: "web_search" | "ats_api" | "paste_only" | "browser";
   enabled: boolean;
   max_results: number;
   sort_order: number;
   limitation_note: string | null;
   boards: number;
+}
+
+// ---------- Reach out ----------
+
+export type RoleKind = "engineer" | "eng_manager" | "recruiter" | "other";
+export type Channel = "connect_note" | "inmail" | "linkedin_message" | "email";
+export type OutreachStyle = "technical" | "general";
+
+export interface Candidate {
+  full_name: string;
+  title: string;
+  linkedin_url: string | null;
+  email: string | null;
+  email_confidence: number | null;
+  found_via: "web_search" | "hunter";
+  role_kind: RoleKind;
+  why: string;
+  contact_id: string | null;
+}
+
+export interface Contact {
+  id: string;
+  company_id: string | null;
+  company_name: string | null;
+  full_name: string;
+  title: string | null;
+  linkedin_url: string | null;
+  email: string | null;
+  email_source: "hunter" | "user" | null;
+  email_confidence: number | null;
+  found_via: string;
+  role_kind: RoleKind;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface ContactSummary {
+  id: string;
+  full_name: string;
+  title: string | null;
+  company_id: string | null;
+  company_name: string | null;
+  last_message_at: string | null;
+  last_direction: "out" | "in" | null;
+  message_count: number;
+}
+
+export interface OutreachMessage {
+  id: string;
+  contact_id: string;
+  job_id: string | null;
+  direction: "out" | "in";
+  channel: Channel;
+  style: OutreachStyle | null;
+  subject: string | null;
+  body: string;
+  material_meta: Record<string, unknown> | null;
+  sent_at: string;
+}
+
+export interface ContactDetail extends Contact {
+  messages: OutreachMessage[];
+  jobs: JobSummary[];
+}
+
+export interface DraftVersion {
+  channel: Channel;
+  subject: string | null;
+  body: string;
+  length: number;
+  limit: number | null;
+  over_limit: boolean;
+  citations: { sentence: string; supported: boolean }[];
+  needs_confirmation: { item: string; why: string }[];
+}
+
+export interface DraftsOut {
+  style: OutreachStyle;
+  language: "en" | "zh";
+  versions: DraftVersion[];
+  material_meta: Record<string, unknown>;
+}
+
+export interface HunterSettings {
+  enabled: boolean;
+  key_last4: string | null;
 }
 
 export interface SearchSource {
@@ -308,7 +467,6 @@ export interface RunSite {
 export interface RunJob extends JobSummary {
   outcome: "kept" | "excluded" | "duplicate";
   exclusion_reasons: { code: string; label: string }[];
-  found_on: string[];
 }
 
 export interface SearchRun {
@@ -322,8 +480,18 @@ export interface SearchRun {
   sponsor_history: boolean;
   sites: RunSite[];
   target_jobs: number | null;
-  progress: { phase: string; total: number; done: number; checked: number; outcomes: Record<string, number> } | null;
+  // note：需要你处理的事（例如到浏览器窗口登录）
+  progress: { phase: string; total: number; done: number; checked: number; outcomes: Record<string, number>; note?: string | null } | null;
   counts: Record<string, number>;
+}
+
+// 登录浏览器：用自己的登录身份搜索（目前只有 LinkedIn）
+export interface BrowserStatus {
+  enabled: boolean;
+  available: boolean;
+  reason: string | null;
+  window_open: boolean;
+  logged_in: Record<string, boolean | null>;
 }
 
 export interface SearchRunDetail extends SearchRun {
@@ -405,6 +573,28 @@ export interface JobDetail extends JobSummary {
   evidence: Record<string, string>;
 }
 
+export interface StyleRule {
+  id: string;
+  kind: "cover_letter" | "qa";
+  text: string;
+  origin: "learned" | "manual";
+  status: "active" | "removed";
+  source_count: number;
+  updated_at: string;
+}
+export interface KindStyle {
+  rules: StyleRule[];
+  removed: StyleRule[];
+  samples: number;
+  pending: number;
+}
+export type StyleRules = Record<"cover_letter" | "qa", KindStyle>;
+export interface LearnResult {
+  added: string[];
+  dropped: string[];
+  style: KindStyle;
+}
+
 export interface Material {
   id: string;
   job_id: string | null;
@@ -424,4 +614,7 @@ export interface Material {
   created_at: string;
   images: { position: number; mime: string; width: number; height: number; size_bytes: number }[];
   evidence: Record<string, string>;
+  style_rules: string[] | null;
+  job_title: string | null;
+  company: string | null;
 }

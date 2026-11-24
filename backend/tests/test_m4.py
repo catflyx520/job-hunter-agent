@@ -125,6 +125,10 @@ def test_stats_totals_funnel_and_drill_down(client):
     only_linkedin = client.get("/api/stats", params={"site": "linkedin"}).json()
     assert only_linkedin["totals"]["found"] == 1 and only_linkedin["totals"]["interviewing"] == 1
     assert client.get("/api/stats", params={"status": "offer"}).json()["totals"]["found"] == 0
+    # 关键词：职称 / 公司 / 地点，不分大小写；下钻也套用
+    assert client.get("/api/stats", params={"q": "  aCmE "}).json()["totals"]["found"] == 1
+    drill = client.get("/api/stats/jobs", params={"q": "acme", "dim": "all"}).json()
+    assert [j["id"] for j in drill] == [jobs["acme"]]
     opts = client.get("/api/stats/options").json()
     assert {c["name"] for c in opts["companies"]} >= {"Northwind Labs", "Acme Cloud"}
 
@@ -183,3 +187,11 @@ def test_blacklist_company_and_title(client):
     # 同一项再加一次：不重复
     again = client.post("/api/blacklist", json={"kind": "company", "value": "acme cloud, inc."}).json()
     assert again["blacklist"]["companies"] == ["ACME CLOUD, INC."] and again["dismissed"] == 0
+
+
+def test_referred_counts_as_submitted(client):
+    _, jobs = _setup(client)
+    a = _put(client, jobs["northwind"], "referred", note="已向 Jane 请求内推")
+    assert a["applied_at"] is not None and a["events"][-1]["to_status"] == "referred"
+    totals = client.get("/api/stats").json()["totals"]
+    assert totals["submitted"] == 1 and totals["referred"] == 1

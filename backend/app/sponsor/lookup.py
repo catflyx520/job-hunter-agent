@@ -187,6 +187,9 @@ def compute_status(db: Session, company: Company) -> CompanySponsorStatus:
 
 
 def refresh_company(db: Session, company: Company) -> CompanySponsorStatus:
+    # 搜索会同时处理同一家公司的几个职位：同一家公司一次只让一个交易算，后到的等前面 commit 后再看，
+    # 才不会两边各写一笔同样的比对记录、撞唯一限制。锁在交易结束时自动放开。
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"sponsor:{company.id}"})
     if coverage(db)["dataset_count"]:
         suggest_aliases(db, company)
     return compute_status(db, company)

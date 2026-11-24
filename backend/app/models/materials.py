@@ -5,7 +5,8 @@ from datetime import datetime
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import CheckConstraint, ForeignKey, Index, Integer, SmallInteger, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, SmallInteger, Text, UniqueConstraint
+from sqlalchemy import text as sql_text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,6 +17,8 @@ MATERIAL_KINDS = ("cover_letter", "qa")
 JD_SOURCES = ("stored", "url", "pasted", "none")
 MATERIAL_STATUS = ("pending", "running", "done", "failed", "cancelled", "interrupted")
 IMAGE_MIMES = ("image/png", "image/jpeg", "image/webp")
+STYLE_ORIGINS = ("learned", "manual")
+STYLE_STATUS = ("active", "removed")
 
 
 class Material(Base):
@@ -55,6 +58,8 @@ class Material(Base):
     provider_kind: Mapped[str] = mapped_column(Text, nullable=False)
     model: Mapped[str] = mapped_column(Text, nullable=False)
     error: Mapped[str | None] = mapped_column(Text)
+    style_rules: Mapped[list[str] | None] = mapped_column(JSONB)  # 写这份草稿时交给模型的规则文字
+    style_learned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = _updated()
 
@@ -84,3 +89,25 @@ class MaterialImage(Base):
     sha256: Mapped[str] = mapped_column(Text, nullable=False)
 
     material: Mapped[Material] = relationship(back_populates="images")
+
+
+class StyleRule(Base):
+    """从保存的修改整理出的写法规则；removed 留着是为了不再学回来。"""
+
+    __tablename__ = "style_rules"
+    __table_args__ = (
+        CheckConstraint(_in("kind", MATERIAL_KINDS), name="ck_style_rules_kind"),
+        CheckConstraint(_in("origin", STYLE_ORIGINS), name="ck_style_rules_origin"),
+        CheckConstraint(_in("status", STYLE_STATUS), name="ck_style_rules_status"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    origin: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False)
+    source_material_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=False, server_default=sql_text("'{}'::uuid[]")
+    )
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = _updated()

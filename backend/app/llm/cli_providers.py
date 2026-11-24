@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import shutil
@@ -121,14 +122,16 @@ class ClaudeCliProvider(LLMProvider):
     def __init__(self, model: str, capabilities: Capabilities | None = None):
         super().__init__(model, capabilities)
 
-    def build_args(self, exe: str, search: bool = False) -> list[str]:
+    def build_args(self, exe: str, search: bool = False, images: bool = False) -> list[str]:
         # 一般任务停用所有内建工具；职位搜索只开放 WebSearch（网页由 app 自己用安全读取去读）
         tools = ["--tools", "WebSearch", "--allowedTools", "WebSearch"] if search else ["--tools", ""]
+        # 图片要放在消息里送进去（stream-json 输入），不开读档工具；CLI 规定这时输出也要是 stream-json
+        fmt = ["stream-json", "--verbose", "--input-format", "stream-json"] if images else ["json"]
         args = [
             exe,
             "-p",
             "--output-format",
-            "json",
+            *fmt,
             *tools,
             "--strict-mcp-config",  # 不载入任何 MCP server
             "--setting-sources",
@@ -140,15 +143,20 @@ class ClaudeCliProvider(LLMProvider):
         return args
 
     def _complete(self, messages, images, json_mode, search: bool = False):
-        if images:
-            raise LLMError(tr("Claude Code CLI 模式不支援图片。"))
         exe = find_executable("claude")
         if not exe:
             raise LLMError(tr("找不到本机 `claude`，请先安装 Claude Code 并在终端登录。"))
+        prompt = flatten_prompt(messages)
+        if images:
+            content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+            for img in images:
+                data = base64.b64encode(img.data).decode()
+                content.append({"type": "image", "source": {"type": "base64", "media_type": img.mime, "data": data}})
+            prompt = json.dumps({"type": "user", "message": {"role": "user", "content": content}}) + "\n"
         with tempfile.TemporaryDirectory(prefix="jha-claude-", ignore_cleanup_errors=True) as workdir:
             out = run_cli(
-                self.build_args(exe, search),
-                flatten_prompt(messages),
+                self.build_args(exe, search, bool(images)),
+                prompt,
                 self.label,
                 cwd=workdir,
                 cli="claude",
